@@ -187,6 +187,33 @@ find_usb_partition() {
     fi
 }
 
+# exFAT — единственная из поддерживаемых ФС, для которой в OpenWrt нет
+# внешнего mount-хелпера (/sbin/mount.exfat не существует в принципе, в
+# отличие от mount.ntfs3/mount.ntfs-3g у NTFS): block-mount умеет монтировать
+# её только напрямую через ядро (kmod-fs-exfat). Если модуль недоступен в
+# этой прошивке или не регистрируется в /proc/filesystems, ошибка вида
+# 'block: No "mount.exfat" utility available' проявится только на шаге
+# монтирования, без внятной причины — проверяем всё заранее.
+setup_exfat() {
+    if ! pkg_available kmod-fs-exfat; then
+        log "kmod-fs-exfat недоступен в этой прошивке (нет в индексе пакетов)."
+        log "У exFAT в OpenWrt нет резервного FUSE-варианта (как у NTFS) — переформатируйте накопитель в ext4 (рекомендуется) или ntfs3 и повторите."
+        exit 1
+    fi
+    pkg_install kmod-fs-exfat
+    pkg_available exfat-utils && pkg_install exfat-utils
+
+    if ! grep -q '\bexfat\b' /proc/filesystems 2>/dev/null; then
+        modprobe exfat >/dev/null 2>&1 || insmod exfat >/dev/null 2>&1 || true
+    fi
+    if ! grep -q '\bexfat\b' /proc/filesystems 2>/dev/null; then
+        log "Пакет kmod-fs-exfat установлен, но ядро не регистрирует файловую систему exfat в этой сборке прошивки."
+        log "Смонтировать exFAT напрямую средствами OpenWrt не получится — переформатируйте накопитель в ext4 (рекомендуется) или ntfs3 и повторите."
+        exit 1
+    fi
+    mount_fstype="exfat"
+}
+
 do_setup() {
     case "$CUDY_FS_TYPE" in
         ext4|exfat|ntfs3) ;;
@@ -208,8 +235,7 @@ do_setup() {
             mount_fstype="ext4"
             ;;
         exfat)
-            pkg_install kmod-fs-exfat exfat-utils
-            mount_fstype="exfat"
+            setup_exfat
             ;;
         ntfs3)
             # Драйвер ntfs3 в ядре требует Linux 5.15+ (OpenWrt 23.05+). На
@@ -400,8 +426,7 @@ do_swap_disk() {
             mount_fstype="vfat"
             ;;
         exfat)
-            pkg_install kmod-fs-exfat exfat-utils >/dev/null
-            mount_fstype="exfat"
+            setup_exfat
             ;;
         ntfs)
             if pkg_available kmod-fs-ntfs3; then
