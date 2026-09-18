@@ -53,8 +53,11 @@ fi
 # /etc/rc.button/BTN_0 — обычный файл, а не UCI-конфиг, поэтому по
 # умолчанию НЕ переживает "sysupgrade" (без -n сохраняются только файлы,
 # перечисленные в /etc/sysupgrade.conf). Добавляем его туда сами, чтобы
-# после обновления прошивки скрипт не пришлось ставить заново.
-if [ -f "$SYSUPGRADE_CONF" ] && ! grep -qxF "$TARGET" "$SYSUPGRADE_CONF"; then
+# после обновления прошивки скрипт не пришлось ставить заново. Файл
+# создаём, если его почему-то ещё нет — иначе "-f" молча пропустит шаг
+# и обещание "переживёт sysupgrade" не выполнится.
+[ -f "$SYSUPGRADE_CONF" ] || : > "$SYSUPGRADE_CONF"
+if ! grep -qxF "$TARGET" "$SYSUPGRADE_CONF"; then
     echo "$TARGET" >> "$SYSUPGRADE_CONF"
     echo "Добавил $TARGET в $SYSUPGRADE_CONF — переживёт sysupgrade."
 fi

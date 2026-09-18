@@ -51,17 +51,19 @@ released)
     ;;
 esac
 
-# Текущее состояние берём с первой попавшейся секции wifi-device —
-# в этом скрипте все секции всегда переключаются синхронно, так что
-# для сравнения достаточно одной.
+# Проверяем КАЖДУЮ секцию wifi-device, а не только первую попавшуюся:
+# секции могут разъехаться (например, если кто-то вручную поменял одно
+# из радио через LuCI/uci) — need_update должен взводиться, если хоть
+# одна секция не совпадает с желаемым состоянием, иначе рассинхрон
+# останется незамеченным и не будет исправлен переключателем.
 wifi_check_state() {
-    [ -n "$current_disabled" ] && return 0
-    current_disabled="$(uci -q get wireless.$1.disabled)"
-    [ -z "$current_disabled" ] && current_disabled=0
+    val="$(uci -q get wireless."$1".disabled)"
+    [ -z "$val" ] && val=0
+    [ "$val" != "$rfkill_state" ] && need_update=1
 }
 
 wifi_rfkill_set() {
-    uci set wireless.$1.disabled=$rfkill_state
+    uci set wireless."$1".disabled="$rfkill_state"
 }
 
 led_red_on() {
@@ -80,11 +82,11 @@ led_red_off() {
 }
 
 config_load wireless
-current_disabled=""
+need_update=0
 config_foreach wifi_check_state wifi-device
 
-if [ "$current_disabled" = "$rfkill_state" ]; then
-    logger -t rc.button.mode "mode switch ${ACTION}: уже disabled=${rfkill_state}, пропускаю"
+if [ "$need_update" = "0" ]; then
+    logger -t rc.button.mode "mode switch ${ACTION}: уже disabled=${rfkill_state} на всех секциях, пропускаю"
 else
     logger -t rc.button.mode "mode switch ${ACTION}: wireless disabled=${rfkill_state}"
     config_foreach wifi_rfkill_set wifi-device
