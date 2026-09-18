@@ -57,50 +57,56 @@ mount_point() {
     echo "$mp"
 }
 
-# Мигает светодиодом $1 (путь в /sys/class/leds) $2 раз, интервал 1 сек,
-# и возвращает исходную яркость обратно (не оставляет включённым/выключенным
-# насовсем — на этом светодиоде может быть завязана другая логика, см.
-# mode-button-wifi-toggle.sh).
-blink_led() {
-    dir="$1"
-    times="$2"
+led_get() { cat "${1}/brightness" 2>/dev/null || echo 0; }
+led_get_max() { cat "${1}/max_brightness" 2>/dev/null || echo 1; }
+led_set() { [ -e "${1}/brightness" ] && echo "$2" > "${1}/brightness" 2>/dev/null; }
+led_disable_trigger() { [ -e "${1}/trigger" ] && echo none > "${1}/trigger" 2>/dev/null; }
 
-    [ -e "${dir}/brightness" ] || return 0
-    [ -e "${dir}/trigger" ] && echo none > "${dir}/trigger" 2>/dev/null
+# red:power и white:status на этой прошивке — физически один и тот же
+# индикатор (см. mode-button-wifi-toggle.sh): если оба выставить в
+# brightness>0 одновременно, светятся ОБА разом вместо однозначного цвета.
+# Поэтому на время сигнала явно гасим второй светодиод, а не только
+# управляем нужным, и восстанавливаем оба исходных состояния после —
+# чтобы не сбить индикацию mode-button-wifi-toggle.sh (держит red:power
+# включённым, пока выключен Wi-Fi).
+signal_success() {
+    led_disable_trigger "$LED_WHITE_DIR"
+    led_disable_trigger "$LED_RED_DIR"
 
-    saved_brightness="$(cat "${dir}/brightness" 2>/dev/null || echo 0)"
-    max_brightness="$(cat "${dir}/max_brightness" 2>/dev/null || echo 1)"
+    white_saved="$(led_get "$LED_WHITE_DIR")"
+    red_saved="$(led_get "$LED_RED_DIR")"
+    white_max="$(led_get_max "$LED_WHITE_DIR")"
+
+    led_set "$LED_RED_DIR" 0
 
     i=0
-    while [ "$i" -lt "$times" ]; do
-        echo "$max_brightness" > "${dir}/brightness" 2>/dev/null
+    while [ "$i" -lt 5 ]; do
+        led_set "$LED_WHITE_DIR" "$white_max"
         sleep 1
-        echo 0 > "${dir}/brightness" 2>/dev/null
+        led_set "$LED_WHITE_DIR" 0
         sleep 1
         i=$((i + 1))
     done
 
-    echo "$saved_brightness" > "${dir}/brightness" 2>/dev/null
+    led_set "$LED_WHITE_DIR" "$white_saved"
+    led_set "$LED_RED_DIR" "$red_saved"
 }
 
-# Держит светодиод $1 включённым $2 секунд, затем возвращает исходную яркость.
-hold_led() {
-    dir="$1"
-    seconds="$2"
+signal_failure() {
+    led_disable_trigger "$LED_WHITE_DIR"
+    led_disable_trigger "$LED_RED_DIR"
 
-    [ -e "${dir}/brightness" ] || return 0
-    [ -e "${dir}/trigger" ] && echo none > "${dir}/trigger" 2>/dev/null
+    white_saved="$(led_get "$LED_WHITE_DIR")"
+    red_saved="$(led_get "$LED_RED_DIR")"
+    red_max="$(led_get_max "$LED_RED_DIR")"
 
-    saved_brightness="$(cat "${dir}/brightness" 2>/dev/null || echo 0)"
-    max_brightness="$(cat "${dir}/max_brightness" 2>/dev/null || echo 1)"
+    led_set "$LED_WHITE_DIR" 0
+    led_set "$LED_RED_DIR" "$red_max"
+    sleep 5
 
-    echo "$max_brightness" > "${dir}/brightness" 2>/dev/null
-    sleep "$seconds"
-    echo "$saved_brightness" > "${dir}/brightness" 2>/dev/null
+    led_set "$LED_WHITE_DIR" "$white_saved"
+    led_set "$LED_RED_DIR" "$red_saved"
 }
-
-signal_success() { blink_led "$LED_WHITE_DIR" 5; }
-signal_failure() { hold_led "$LED_RED_DIR" 5; }
 
 handle_usb_button() {
     mp="$(mount_point)"
