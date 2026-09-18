@@ -90,10 +90,11 @@ http:
   address: 192.168.3.1:8080
   session_ttl: 30d
 users:
-  # ЗАМЕНИТЕ на свой bcrypt-хэш перед использованием, например:
+  # Логин/пароль по умолчанию: root / root. ОБЯЗАТЕЛЬНО смените после
+  # первого входа в веб-интерфейс AdGuard Home. Сгенерировать свой хэш:
   #   htpasswd -bnBC 10 "" 'ваш_пароль' | cut -d: -f2
   - name: root
-    password: REPLACE_WITH_YOUR_BCRYPT_HASH
+    password: $2y$10$ZbzX5Rvt928Lwtj11fSuB.o.tcI/LRvbVhj0tonigvIZFQNQieioO
 auth_attempts: 5
 block_auth_min: 15
 http_proxy: ""
