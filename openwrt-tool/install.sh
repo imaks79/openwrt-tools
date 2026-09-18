@@ -28,7 +28,7 @@ SELF_DIR=/root/openwrt-tool
 SELF_PATH="$SELF_DIR/install.sh"
 LOG_FILE="$SELF_DIR/install.log"
 # ЗАМЕНИТЕ на прямую ссылку (raw) на этот файл в вашем репозитории:
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh"
 # НЕ используем переменную окружения HOSTNAME как есть: это стандартное
 # имя, которое некоторые оболочки/окружения (проверено на busybox ash в
 # Docker) уже выставляют сами, и тогда наш дефолт "OpenWrt" молча

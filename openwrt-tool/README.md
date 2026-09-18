@@ -7,15 +7,36 @@ podkop, тему LuCI и сетевые/сетевые UCI-настройки �
 
 ## Быстрый старт
 
-Подключитесь к роутеру по SSH и вставьте одну строку:
+Подключитесь к роутеру по SSH и вставьте одну строку (hostname по
+умолчанию `OpenWrt`):
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh | sh
 ```
 
 Роутер сам обновится, установит пакеты, применит конфиг AdGuard Home и
 сетевые настройки, дважды перезагрузится и на этом закончит — повторно
 заходить по SSH не нужно.
+
+С уникальным именем роутера (полезно при массовой настройке нескольких
+устройств одновременно):
+
+```sh
+wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
+OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
+```
+
+Со своим адресом LAN вместо `192.168.3.1` (подставится сразу везде: в
+`network.lan.ipaddr`, DNS-опцию DHCP и конфиг AdGuard Home — вручную
+ничего досогласовывать не нужно):
+
+```sh
+OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+```
+
+Адрес должен быть в форме `A.B.C.D`, последний октет не может быть `0`
+или `255`, и не должен попадать в диапазон DHCP-пула (по умолчанию
+`.100`–`.249`) — иначе скрипт откажется стартовать и объяснит причину.
 
 ## Как это работает
 
@@ -36,55 +57,31 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh
 Итого роутер сам уходит на 2 перезагрузки и полностью настраивается без
 повторных заходов по SSH.
 
-## Настройка перед публикацией на GitHub
+## Если форкаете этот проект
 
-`SCRIPT_URL` в `install.sh` уже указывает на raw-адрес файла в этом
-репозитории (нужен, чтобы скрипт мог скачать сам себя для повторного запуска
-после перезагрузки):
+Этот каталог — часть монорепозитория
+[openwrt-tools](https://github.com/imaks79/openwrt-tools), поэтому
+`SCRIPT_URL` в `install.sh` включает префикс `openwrt-tool/`:
 
 ```sh
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh"
 ```
 
-Если форкаете или переносите проект в другой репозиторий — поменяйте
-`<USER>/<REPO>` на свои.
+Эта константа нужна, чтобы скрипт мог скачать сам себя для повторного
+запуска после перезагрузки. Если форкаете или переносите именно этот
+каталог в отдельный репозиторий — поменяйте её (или полный путь, если у
+нового репозитория нет такого подкаталога).
 
-Логин/пароль AdGuard Home по умолчанию — `root` / `root`. Это временный
-пароль для первого входа, **смените его сразу после установки** через
-веб-интерфейс AdGuard Home, либо заранее сгенерируйте свой хэш и подставьте
-в `password:` внутри `install.sh`:
+## Пароль AdGuard Home
+
+Логин/пароль по умолчанию — `root` / `root`. Это временный пароль для
+первого входа, **смените его сразу после установки** через веб-интерфейс
+AdGuard Home, либо заранее сгенерируйте свой хэш и подставьте в
+`password:` внутри `install.sh`:
 
 ```sh
 htpasswd -bnBC 10 "" 'ваш_пароль' | cut -d: -f2
 ```
-
-## Запуск на роутере
-
-Базовый вариант (hostname по умолчанию `OpenWrt`):
-
-```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh | sh
-```
-
-С уникальным именем роутера (полезно при массовой настройке нескольких
-устройств одновременно):
-
-```sh
-wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh
-OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
-```
-
-Со своим адресом LAN вместо `192.168.3.1` (подставится сразу везде: в
-`network.lan.ipaddr`, DNS-опцию DHCP и конфиг AdGuard Home — вручную
-ничего досогласовывать не нужно):
-
-```sh
-OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
-```
-
-Адрес должен быть в форме `A.B.C.D`, последний октет не может быть `0`
-или `255`, и не должен попадать в диапазон DHCP-пула (по умолчанию
-`.100`–`.249`) — иначе скрипт откажется стартовать и объяснит причину.
 
 ## Логи и повторный запуск
 

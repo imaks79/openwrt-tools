@@ -20,7 +20,7 @@
 # Удержание от 1 до 5 секунд ничего не делает (как и в исходной прошивке).
 #
 # Установка на роутере (через SSH):
-#   wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
 #
 # ВАЖНО: имена светодиодов red:power / white:status подобраны и проверены
 # на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic). На другой
@@ -28,7 +28,7 @@
 #   ls /sys/class/leds/
 # и при необходимости переопределите перед установкой:
 #   LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-#     wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
 #
 # Точка монтирования читается из той же UCI-секции, которую настраивает
 # install.sh (fstab.usbmount.target) — так эта кнопка всегда соответствует

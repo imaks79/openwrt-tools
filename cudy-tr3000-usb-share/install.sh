@@ -43,7 +43,7 @@ SELF_PATH="$SELF_DIR/install.sh"
 LOG_FILE="$SELF_DIR/install.log"
 # ЗАМЕНИТЕ на прямую ссылку (raw) на этот файл в вашем репозитории, если
 # форкаете или переносите проект в другой репозиторий:
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install.sh"
 
 CUDY_MOUNT_POINT="${CUDY_MOUNT_POINT:-/mnt/usb1}"
 CUDY_FS_TYPE="${CUDY_FS_TYPE:-ext4}"

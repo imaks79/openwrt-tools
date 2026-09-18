@@ -27,7 +27,7 @@
 # install-mode-button.sh в этом репозитории для деталей и переопределения
 # имён LED через переменные окружения):
 #
-#   wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-mode-button.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
 #
 # Либо вручную, тем же способом, что и install.sh для USB-шары:
 #

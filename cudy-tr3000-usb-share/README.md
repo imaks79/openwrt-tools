@@ -19,7 +19,7 @@ USB 3.0 порту подключён накопитель (можно подк�
 Подключитесь к роутеру по SSH и вставьте одну строку:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install.sh | sh
 ```
 
 Роутер сам обновит списки пакетов, поставит нужные модули (USB 3.0,
@@ -43,8 +43,10 @@ wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/i
 - выбор раздела (если к роутеру подключено сразу несколько
   USB-накопителей) читает ответ явно из `/dev/tty` — реального терминала
   SSH-сессии, а не из перекрытого stdin;
-- создание SMB-пользователя (`ksmbd.adduser`/`smbpasswd`) само запрашивает
-  пароль напрямую через терминал и пайпа не боится.
+- по той же причине создание SMB-пользователя (`ksmbd.adduser`/`smbpasswd`)
+  тоже явно читает пароль из `/dev/tty`, а не из своего stdin — без этого
+  оно мгновенно получает EOF вместо пароля и завершается, так и не дав
+  его ввести.
 
 Настройка (в отличие от `openwrt-tool`) не требует перезагрузки роутера,
 поэтому скрипту не нужно переживать ребут и продолжать себя после него —
@@ -53,18 +55,23 @@ wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/i
 (статус, смена диска, cron-алерт) можно было запускать повторно без
 повторного скачивания.
 
-## Настройка перед публикацией на GitHub
+## Если форкаете этот проект
 
-`SCRIPT_URL` в `install.sh` уже указывает на raw-адрес файла в этом
-репозитории:
+Этот каталог — часть монорепозитория
+[openwrt-tools](https://github.com/imaks79/openwrt-tools), поэтому
+raw-ссылки внутри скриптов включают префикс `cudy-tr3000-usb-share/`.
+Если форкаете или переносите **именно этот каталог** в отдельный
+репозиторий — поменяйте `<USER>/<REPO>` (или полный путь, если у нового
+репозитория нет такого подкаталога) в переменной `SCRIPT_URL` сразу в
+трёх файлах, а не только в `install.sh`:
 
 ```sh
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh"
+grep -rn '^SCRIPT_URL=' *.sh
 ```
 
-Если форкаете или переносите проект в другой репозиторий — поменяйте
-`<USER>/<REPO>` на свои (в комментарии сверху `install.sh` и в примерах
-ниже тоже).
+Это `install.sh`, `install-mode-button.sh` (качает
+`mode-button-wifi-toggle.sh`) и `install-reset-button.sh` (качает
+`reset-button-usb-toggle.sh`) — у каждого своя копия константы.
 
 ## Переменные окружения
 
@@ -87,21 +94,21 @@ CUDY_MODE              setup (по умолчанию) | status | swap-disk | cr
 
 ```sh
 CUDY_FS_TYPE=exfat CUDY_SHARE_NAME=movies \
-  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install.sh | sh
 ```
 
 Настройка сразу с ежедневным алертом о заполнении диска:
 
 ```sh
 CUDY_WITH_CRON_ALERT=1 \
-  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install.sh | sh
 ```
 
 Гостевой (анонимный) доступ без пароля:
 
 ```sh
 CUDY_GUEST=1 \
-  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install.sh | sh
 ```
 
 ## Режимы после первоначальной настройки
@@ -250,7 +257,7 @@ Wi-Fi выключен — вместо белого статусного све
 Установка одной строкой (лучше по кабелю/LAN — см. предупреждение ниже):
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-mode-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
 ```
 
 Скрипт `install-mode-button.sh` скачивает `mode-button-wifi-toggle.sh` и
@@ -278,7 +285,7 @@ v1 (OpenWrt 25.12.5, mediatek/filogic). На другой модели/прош�
 
 ```sh
 LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-mode-button.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
 ```
 
 **Важно:** если вы зашли по SSH через сам Wi-Fi (а не по кабелю), то
@@ -344,7 +351,7 @@ TR3000 (прошивка OpenWrt 25.12.5) подключает/отключае�
 Установка одной строкой:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
 ```
 
 Заменяет штатный `/etc/rc.button/reset` и добавляет его в
@@ -356,7 +363,7 @@ v1. На другой модели/прошивке сначала провер�
 
 ```sh
 LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
 ```
 
 Проверить без физической кнопки (эмуляция короткого нажатия):
