@@ -5,13 +5,23 @@
 podkop, тему LuCI и сетевые/сетевые UCI-настройки — всё в один проход,
 без ручного вмешательства между шагами.
 
+## Быстрый старт
+
+Подключитесь к роутеру по SSH и вставьте одну строку:
+
+```sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh | sh
+```
+
+Роутер сам обновится, установит пакеты, применит конфиг AdGuard Home и
+сетевые настройки, дважды перезагрузится и на этом закончит — повторно
+заходить по SSH не нужно.
+
 ## Как это работает
 
-Исходные шаблоны настроек лежат в `Шаблоны/`:
-- `adguardhome.md` — конфиг `/etc/adguardhome/adguardhome.yaml`;
-- `Конфигурация cudy tr3000.md` — три блока команд (обновление системы,
-  установка пакетов, сетевые UCI-настройки).
-
+Исходные настройки были собраны из двух источников: конфига AdGuard Home
+(`/etc/adguardhome/adguardhome.yaml`) и трёх блоков команд для роутера
+(обновление системы, установка пакетов, сетевые UCI-настройки).
 `install.sh` объединяет всё это в один файл. Особенность в том, что первый
 блок команд заканчивается перезагрузкой роутера — простой `wget | sh` этого
 не переживёт. Поэтому скрипт:
@@ -28,14 +38,16 @@ podkop, тему LuCI и сетевые/сетевые UCI-настройки �
 
 ## Настройка перед публикацией на GitHub
 
-В `install.sh` замените плейсхолдер `SCRIPT_URL`:
+`SCRIPT_URL` в `install.sh` уже указывает на raw-адрес файла в этом
+репозитории (нужен, чтобы скрипт мог скачать сам себя для повторного запуска
+после перезагрузки):
 
 ```sh
-SCRIPT_URL="https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh"
 ```
 
-на реальный raw-адрес файла в вашем репозитории (нужен, чтобы скрипт мог
-скачать сам себя для повторного запуска после перезагрузки).
+Если форкаете или переносите проект в другой репозиторий — поменяйте
+`<USER>/<REPO>` на свои.
 
 Конфиг AdGuard Home в скрипте использует плейсхолдер `REPLACE_WITH_YOUR_BCRYPT_HASH`
 вместо пароля — перед использованием сгенерируйте свой хэш и подставьте его:
@@ -52,14 +64,14 @@ htpasswd -bnBC 10 "" 'ваш_пароль' | cut -d: -f2
 Базовый вариант (hostname по умолчанию `cudy_router`):
 
 ```sh
-wget -O - https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh | sh
 ```
 
 С уникальным именем роутера (полезно при массовой настройке нескольких
 устройств одновременно):
 
 ```sh
-wget -O /root/install.sh https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh
+wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh
 HOSTNAME=router-05 sh /root/install.sh
 ```
 
