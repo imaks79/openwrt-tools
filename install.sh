@@ -286,6 +286,12 @@ ADGUARDHOME_EOF
 apply_network_settings() {
     log "Применяю сетевые настройки и настройки доступа..."
     uci set system.@system[0].hostname="$ROUTER_HOSTNAME"
+    # Секция attendedsysupgrade.client существует только если установлен
+    # пакет attendedsysupgrade-common (не на всех прошивках он есть по
+    # умолчанию). Без этой проверки `uci set` на несуществующую секцию
+    # падает с ошибкой, а из-за `set -e` весь скрипт молча прерывается
+    # прямо здесь — сеть, dropbear и DHCP так и остаются нетронутыми.
+    uci -q get attendedsysupgrade.client >/dev/null 2>&1 || uci set attendedsysupgrade.client='client'
     uci set attendedsysupgrade.client.login_check_for_upgrades='1'
     uci set dropbear.@dropbear[0].PasswordAuth='0'
     uci set dropbear.@dropbear[0].RootPasswordAuth='0'
@@ -355,7 +361,13 @@ case "$STAGE" in
     apk add wpad-openssl
 
     log "Устанавливаю podkop..."
-    sh <(wget -O - https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh) \
+    # Скрипт podkop задаёт интерактивные вопросы (y/n) через `read`. Так как
+    # наш install.sh обычно запускается как "wget -O - ... | sh", stdin уже
+    # исчерпан чтением самого скрипта, и `read` внутри podkop сразу получает
+    # EOF — это уходит в бесконечный цикл "Введите y или n". Поэтому отвечаем
+    # на все вопросы заранее через `yes` (подтверждаем русский язык интерфейса
+    # и прочие da/no-подсказки значением по умолчанию).
+    yes | sh <(wget -O - https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh) \
         || log "ВНИМАНИЕ: установка podkop завершилась с ошибкой, продолжаю"
 
     log "Устанавливаю тему luci-theme-proton2025..."
@@ -363,9 +375,14 @@ case "$STAGE" in
         || log "ВНИМАНИЕ: установка темы завершилась с ошибкой, продолжаю"
 
     write_adguardhome_config
+    # Конфиг AdGuard Home биндится на 192.168.3.1 — этот адрес появится на
+    # интерфейсе LAN только после apply_network_settings (uci commit) и
+    # перезагрузки в конце этапа. Поэтому здесь сервис только включаем
+    # (автозапуск), а не запускаем/перезапускаем: если поднять его раньше
+    # смены IP, AdGuard Home не сможет забиндиться на 192.168.3.1:8080 и
+    # откатится в мастер первого запуска на 0.0.0.0:3000.
     if [ -x /etc/init.d/adguardhome ]; then
         /etc/init.d/adguardhome enable
-        /etc/init.d/adguardhome restart || true
     fi
 
     apply_network_settings
