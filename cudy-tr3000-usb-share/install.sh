@@ -7,7 +7,7 @@
 #
 # Вся настройка — через переменные окружения перед командой (все опциональны):
 #   CUDY_MOUNT_POINT     точка монтирования USB (по умолчанию /mnt/usb1)
-#   CUDY_FS_TYPE          ext4 | exfat | ntfs3 (по умолчанию ext4)
+#   CUDY_FS_TYPE          ext4 | exfat | ntfs3 | vfat | f2fs (по умолчанию ext4)
 #   CUDY_SHARE_NAME       имя сетевой шары (по умолчанию share)
 #   CUDY_WORKGROUP        рабочая группа SMB (по умолчанию WORKGROUP)
 #   CUDY_SMB_USER         логин для доступа к шаре (по умолчанию cudyuser)
@@ -216,8 +216,8 @@ setup_exfat() {
 
 do_setup() {
     case "$CUDY_FS_TYPE" in
-        ext4|exfat|ntfs3) ;;
-        *) log "Недопустимый CUDY_FS_TYPE='$CUDY_FS_TYPE' (ext4|exfat|ntfs3)"; exit 1 ;;
+        ext4|exfat|ntfs3|vfat|f2fs) ;;
+        *) log "Недопустимый CUDY_FS_TYPE='$CUDY_FS_TYPE' (ext4|exfat|ntfs3|vfat|f2fs)"; exit 1 ;;
     esac
 
     wait_for_network
@@ -250,6 +250,22 @@ do_setup() {
                 pkg_install kmod-fuse ntfs-3g
                 mount_fstype="ntfs-3g"
             fi
+            ;;
+        vfat)
+            # FAT32: ограничение 4 ГБ на файл — годится для документов/фото,
+            # не годится для больших видео/бэкапов.
+            pkg_install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1
+            mount_fstype="vfat"
+            ;;
+        f2fs)
+            if ! pkg_available kmod-fs-f2fs; then
+                log "kmod-fs-f2fs недоступен в этой прошивке (нет в индексе пакетов)."
+                log "Переформатируйте накопитель в ext4 (рекомендуется) или другую поддерживаемую ФС и повторите."
+                exit 1
+            fi
+            pkg_install kmod-fs-f2fs
+            pkg_available f2fs-tools && pkg_install f2fs-tools
+            mount_fstype="f2fs"
             ;;
     esac
 
@@ -437,6 +453,14 @@ do_swap_disk() {
                 pkg_install kmod-fuse ntfs-3g >/dev/null
                 mount_fstype="ntfs-3g"
             fi
+            ;;
+        f2fs)
+            if ! pkg_available kmod-fs-f2fs; then
+                log "kmod-fs-f2fs недоступен в этой прошивке."
+                exit 1
+            fi
+            pkg_install kmod-fs-f2fs >/dev/null
+            mount_fstype="f2fs"
             ;;
         *)
             log "Неизвестная/неподдерживаемая файловая система: ${USB_DEVTYPE:-<пусто>}."
