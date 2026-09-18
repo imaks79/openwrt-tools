@@ -61,7 +61,7 @@ htpasswd -bnBC 10 "" 'ваш_пароль' | cut -d: -f2
 
 ## Запуск на роутере
 
-Базовый вариант (hostname по умолчанию `cudy_router`):
+Базовый вариант (hostname по умолчанию `OpenWrt`):
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh | sh
