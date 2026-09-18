@@ -7,7 +7,7 @@
 #
 # Чтобы задать уникальный hostname для конкретного роутера:
 #   wget -O /root/install.sh https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh
-#   HOSTNAME=router-05 sh /root/install.sh
+#   OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 #
 # Скрипт сам переживает две перезагрузки (после обновления пакетов и после
 # финальной настройки): он сохраняет себя в /root/openwrt-tool/install.sh,
@@ -24,7 +24,11 @@ SELF_PATH="$SELF_DIR/install.sh"
 LOG_FILE="$SELF_DIR/install.log"
 # ЗАМЕНИТЕ на прямую ссылку (raw) на этот файл в вашем репозитории:
 SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh"
-ROUTER_HOSTNAME="${HOSTNAME:-OpenWrt}"
+# НЕ используем переменную окружения HOSTNAME как есть: это стандартное
+# имя, которое некоторые оболочки/окружения (проверено на busybox ash в
+# Docker) уже выставляют сами, и тогда наш дефолт "OpenWrt" молча
+# подменяется чужим значением. Используем собственное уникальное имя.
+ROUTER_HOSTNAME="${OPENWRT_TOOL_HOSTNAME:-OpenWrt}"
 
 mkdir -p "$SELF_DIR"
 
@@ -63,7 +67,7 @@ install_reboot_hook() {
         chmod +x /etc/rc.local
     fi
     grep -qF "$SELF_PATH" /etc/rc.local 2>/dev/null && return 0
-    sed -i "\|^exit 0|i HOSTNAME='$ROUTER_HOSTNAME' sh $SELF_PATH >> $LOG_FILE 2>&1 &" /etc/rc.local
+    sed -i "\|^exit 0|i OPENWRT_TOOL_HOSTNAME='$ROUTER_HOSTNAME' sh $SELF_PATH >> $LOG_FILE 2>&1 &" /etc/rc.local
 }
 
 remove_reboot_hook() {
@@ -286,11 +290,13 @@ ADGUARDHOME_EOF
 apply_network_settings() {
     log "Применяю сетевые настройки и настройки доступа..."
     uci set system.@system[0].hostname="$ROUTER_HOSTNAME"
-    # Секция attendedsysupgrade.client существует только если установлен
-    # пакет attendedsysupgrade-common (не на всех прошивках он есть по
-    # умолчанию). Без этой проверки `uci set` на несуществующую секцию
-    # падает с ошибкой, а из-за `set -e` весь скрипт молча прерывается
-    # прямо здесь — сеть, dropbear и DHCP так и остаются нетронутыми.
+    # На чистом OpenWrt пакет attendedsysupgrade-common не установлен, и
+    # /etc/config/attendedsysupgrade вообще не существует. `uci set` не
+    # может ни создать секцию, ни тем более опцию в отсутствующем конфиге
+    # (падает с "Entry not found"), а из-за `set -e` весь скрипт молча
+    # прерывается прямо здесь — сеть, dropbear и DHCP так и остаются
+    # нетронутыми. Проверено на реальном uci из openwrt/rootfs (SNAPSHOT).
+    [ -f /etc/config/attendedsysupgrade ] || touch /etc/config/attendedsysupgrade
     uci -q get attendedsysupgrade.client >/dev/null 2>&1 || uci set attendedsysupgrade.client='client'
     uci set attendedsysupgrade.client.login_check_for_upgrades='1'
     uci set dropbear.@dropbear[0].PasswordAuth='0'
