@@ -290,3 +290,48 @@ LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
 ACTION=released BUTTON=BTN_0 /etc/rc.button/BTN_0
 ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 ```
+
+## Дополнительно: безопасное извлечение USB кнопкой reset
+
+Ещё одна не связанная с шарой утилита: штатная кнопка reset на Cudy
+TR3000 (прошивка OpenWrt 25.12.5) размонтирует накопитель прямо на
+роутере — без SSH.
+
+Штатная логика кнопки на этой прошивке:
+
+- отпущена быстрее 1 сек — reboot;
+- удержана 5 сек и дольше — сброс к заводским настройкам;
+- удержана от 1 до 5 сек — раньше не делала **ничего** («мёртвая зона»).
+
+`install-reset-button.sh` занимает именно эту мёртвую зону: держите
+reset 1-4 секунды (не доводя до 5, иначе сработает factory reset) —
+накопитель из точки монтирования, настроенной `install.sh`
+(`fstab.usbmount.target`, по умолчанию `/mnt/usb1`), будет размонтирован.
+Успех подтверждается тройным миганием красного светодиода (`red:power`);
+если накопитель занят и `umount` не прошёл — лампа не мигает, подробности
+в `logread`. Reboot и factory reset по коротким/долгим нажатиям не
+затронуты — правится только сама мёртвая зона.
+
+Установка одной строкой:
+
+```sh
+wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+```
+
+Заменяет штатный `/etc/rc.button/reset` и добавляет его в
+`/etc/sysupgrade.conf`, чтобы правка пережила обновление прошивки.
+
+Имя LED (`red:power`) проверено на Cudy TR3000 256MB v1. На другой
+модели/прошивке сначала проверьте `ls /sys/class/leds/` и при
+необходимости переопределите:
+
+```sh
+LED_RED_DIR=/sys/class/leds/<имя> \
+  wget -O - https://raw.githubusercontent.com/imaks79/cudy-tr3000-usb-share/main/install-reset-button.sh | sh
+```
+
+Проверить без физической кнопки (эмуляция удержания 1-4 сек):
+
+```sh
+SEEN=2 ACTION=released BUTTON=reset /etc/rc.button/reset
+```
