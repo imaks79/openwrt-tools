@@ -318,7 +318,13 @@ do_cron_alert() {
 
     cron_line="0 8 * * * USAGE=\$(df $CUDY_MOUNT_POINT | awk 'NR==2{print \$5}' | tr -d '%'); [ \"\$USAGE\" -ge 90 ] && logger -t $marker \"Диск заполнен на \${USAGE}%\""
 
-    (crontab -l 2>/dev/null; echo "$cron_line") | crontab -
+    # "|| true" обязателен: пока у root вообще нет crontab (типичный случай
+    # при самом первом запуске), "crontab -l" завершается кодом 1. Под
+    # "set -e" это прерывает подшелл ДО "echo", и в crontab улетает пустой
+    # список — сообщение "Готово" при этом всё равно печатается. Проверено:
+    # без "|| true" первый запуск создаёт пустой crontab, а нужная строка
+    # реально попадает в crontab только со второго запуска.
+    (crontab -l 2>/dev/null || true; echo "$cron_line") | crontab -
     /etc/init.d/cron restart
     log "Готово: ежедневная проверка (08:00) заполнения $CUDY_MOUNT_POINT добавлена в cron (тег лога: $marker)."
 }
