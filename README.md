@@ -71,8 +71,20 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh
 
 ```sh
 wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.sh
-HOSTNAME=router-05 sh /root/install.sh
+OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 ```
+
+Со своим адресом LAN вместо `192.168.3.1` (подставится сразу везде: в
+`network.lan.ipaddr`, DNS-опцию DHCP и конфиг AdGuard Home — вручную
+ничего досогласовывать не нужно):
+
+```sh
+OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+```
+
+Адрес должен быть в форме `A.B.C.D`, последний октет не может быть `0`
+или `255`, и не должен попадать в диапазон DHCP-пула (по умолчанию
+`.100`–`.249`) — иначе скрипт откажется стартовать и объяснит причину.
 
 ## Логи и повторный запуск
 
@@ -94,4 +106,8 @@ sh /root/openwrt-tool/install.sh
 - Добавлен `uci commit attendedsysupgrade` — в исходном шаблоне опция
   `login_check_for_upgrades` выставлялась через `uci set`, но не коммитилась
   и поэтому не сохранялась.
-- Hostname можно переопределить через переменную окружения `HOSTNAME`.
+- Hostname можно переопределить через переменную окружения
+  `OPENWRT_TOOL_HOSTNAME`.
+- Адрес LAN можно переопределить через `OPENWRT_TOOL_LAN_IP` — значение
+  подставляется во все зависимые параметры одновременно, что исключает
+  рассинхронизацию между ними.

@@ -9,6 +9,11 @@
 #   wget -O /root/install.sh https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh
 #   OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 #
+# Чтобы задать свой адрес LAN вместо 192.168.3.1 (подставится во все
+# зависимые параметры — network.lan.ipaddr, DNS-опцию DHCP, конфиг
+# AdGuard Home):
+#   OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+#
 # Скрипт сам переживает две перезагрузки (после обновления пакетов и после
 # финальной настройки): он сохраняет себя в /root/openwrt-tool/install.sh,
 # регистрирует одноразовый хук в /etc/rc.local и после каждого ребута
@@ -29,11 +34,56 @@ SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tool/main/install.
 # Docker) уже выставляют сами, и тогда наш дефолт "OpenWrt" молча
 # подменяется чужим значением. Используем собственное уникальное имя.
 ROUTER_HOSTNAME="${OPENWRT_TOOL_HOSTNAME:-OpenWrt}"
+# Адрес роутера в сети LAN. Меняя эту переменную, достаточно один раз задать
+# новый адрес — он подставится везде, где раньше был захардкожен
+# 192.168.3.1 (network.lan.ipaddr, DNS-опция DHCP, конфиг AdGuard Home),
+# так что рассинхронизации между этими параметрами не возникнет.
+ROUTER_LAN_IP="${OPENWRT_TOOL_LAN_IP:-192.168.3.1}"
+# DHCP-пул выдаётся смещением от начала подсети: диапазон
+# [DHCP_START, DHCP_START + DHCP_LIMIT - 1] в последнем октете. Вынесены в
+# переменные, чтобы использовать те же значения при валидации ROUTER_LAN_IP
+# (см. validate_lan_ip) и при применении uci-настроек.
+DHCP_START=100
+DHCP_LIMIT=150
 
 mkdir -p "$SELF_DIR"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+validate_lan_ip() {
+    ip="$1"
+    old_ifs="$IFS"
+    IFS='.'
+    set -- $ip
+    IFS="$old_ifs"
+    if [ "$#" -ne 4 ]; then
+        log "OPENWRT_TOOL_LAN_IP='$ip' — не похож на IPv4-адрес (нужно 4 октета через точку)."
+        exit 1
+    fi
+    o1="$1"; o2="$2"; o3="$3"; o4="$4"
+    for o in "$o1" "$o2" "$o3" "$o4"; do
+        case "$o" in
+            ''|*[!0-9]*)
+                log "OPENWRT_TOOL_LAN_IP='$ip' — октет '$o' не является числом."
+                exit 1
+                ;;
+        esac
+        if [ "$o" -gt 255 ]; then
+            log "OPENWRT_TOOL_LAN_IP='$ip' — октет '$o' больше 255."
+            exit 1
+        fi
+    done
+    if [ "$o4" -eq 0 ] || [ "$o4" -eq 255 ]; then
+        log "OPENWRT_TOOL_LAN_IP='$ip' — последний октет не может быть 0 или 255 (адрес сети/широковещательный)."
+        exit 1
+    fi
+    dhcp_end=$((DHCP_START + DHCP_LIMIT - 1))
+    if [ "$o4" -ge "$DHCP_START" ] && [ "$o4" -le "$dhcp_end" ]; then
+        log "OPENWRT_TOOL_LAN_IP='$ip' конфликтует с диапазоном DHCP (.$DHCP_START-.$dhcp_end на этом же роутере). Выберите адрес вне этого диапазона."
+        exit 1
+    fi
 }
 
 wait_for_network() {
@@ -285,6 +335,11 @@ os:
   rlimit_nofile: 0
 schema_version: 34
 ADGUARDHOME_EOF
+    # Heredoc выше сознательно в одинарных кавычках (внутри bcrypt-хэш вида
+    # \$2y\$10\$..., который shell иначе раскрыл бы как переменные), поэтому
+    # $ROUTER_LAN_IP туда не подставится напрямую — подменяем адрес отдельным
+    # sed после записи файла.
+    sed -i "s/192\.168\.3\.1/$ROUTER_LAN_IP/g" /etc/adguardhome/adguardhome.yaml
 }
 
 apply_network_settings() {
@@ -303,10 +358,10 @@ apply_network_settings() {
     uci set dropbear.@dropbear[0].RootPasswordAuth='0'
     uci set dropbear.@dropbear[0].Port='2222'
     uci set uhttpd.main.redirect_https='1'
-    uci set network.lan.ipaddr='192.168.3.1'
+    uci set network.lan.ipaddr="$ROUTER_LAN_IP"
     uci set network.lan.netmask='255.255.255.0'
-    uci set dhcp.lan.start='100'
-    uci set dhcp.lan.limit='150'
+    uci set dhcp.lan.start="$DHCP_START"
+    uci set dhcp.lan.limit="$DHCP_LIMIT"
     uci set dhcp.lan.leasetime='12h'
     uci set dhcp.lan.force='1'
     uci set network.lan.delegate='0'
@@ -321,7 +376,7 @@ apply_network_settings() {
     uci set dhcp.lan.ra_management='0'
     uci -q delete dhcp.lan.ra_flags
     uci set dhcp.@dnsmasq[0].port='5353'
-    uci add_list dhcp.lan.dhcp_option='6,192.168.3.1'
+    uci add_list dhcp.lan.dhcp_option="6,$ROUTER_LAN_IP"
 
     uci commit system
     uci commit attendedsysupgrade
@@ -335,6 +390,8 @@ apply_network_settings() {
 }
 
 # ---------------------------------------------------------------------------
+
+validate_lan_ip "$ROUTER_LAN_IP"
 
 ensure_local_copy
 
@@ -381,11 +438,11 @@ case "$STAGE" in
         || log "ВНИМАНИЕ: установка темы завершилась с ошибкой, продолжаю"
 
     write_adguardhome_config
-    # Конфиг AdGuard Home биндится на 192.168.3.1 — этот адрес появится на
+    # Конфиг AdGuard Home биндится на $ROUTER_LAN_IP — этот адрес появится на
     # интерфейсе LAN только после apply_network_settings (uci commit) и
     # перезагрузки в конце этапа. Поэтому здесь сервис только включаем
     # (автозапуск), а не запускаем/перезапускаем: если поднять его раньше
-    # смены IP, AdGuard Home не сможет забиндиться на 192.168.3.1:8080 и
+    # смены IP, AdGuard Home не сможет забиндиться на $ROUTER_LAN_IP:8080 и
     # откатится в мастер первого запуска на 0.0.0.0:3000.
     if [ -x /etc/init.d/adguardhome ]; then
         /etc/init.d/adguardhome enable
