@@ -51,6 +51,8 @@ CUDY_WORKGROUP="${CUDY_WORKGROUP:-WORKGROUP}"
 CUDY_SMB_USER="${CUDY_SMB_USER:-cudyuser}"
 CUDY_MODE="${CUDY_MODE:-setup}"
 
+PKG_MANAGER=""
+
 GUEST_OK="no"
 case "${CUDY_GUEST:-0}" in
     1|yes|true|YES|TRUE) GUEST_OK="yes" ;;
@@ -65,6 +67,48 @@ mkdir -p "$SELF_DIR"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# OpenWrt 25.x переходит с opkg на apk (форк apk-tools из Alpine) — на части
+# прошивок opkg уже отсутствует. Определяем менеджер один раз и дальше везде
+# используем эти обёртки вместо прямых вызовов opkg/apk.
+pkg_init() {
+    [ -n "$PKG_MANAGER" ] && return 0
+    if command -v apk >/dev/null 2>&1; then
+        PKG_MANAGER="apk"
+    elif command -v opkg >/dev/null 2>&1; then
+        PKG_MANAGER="opkg"
+    else
+        log "Не найден ни apk, ни opkg — не удалось определить пакетный менеджер этой прошивки."
+        exit 1
+    fi
+    log "Пакетный менеджер: $PKG_MANAGER"
+}
+
+pkg_update() {
+    pkg_init
+    case "$PKG_MANAGER" in
+        apk) apk update ;;
+        opkg) opkg update ;;
+    esac
+}
+
+pkg_install() {
+    pkg_init
+    case "$PKG_MANAGER" in
+        apk) apk add "$@" ;;
+        opkg) opkg install "$@" ;;
+    esac
+}
+
+# Есть ли пакет с точным именем $1 в индексе репозитория (используется для
+# необязательных kmod-fs-ntfs3/ksmbd-server, которых нет в части прошивок).
+pkg_available() {
+    pkg_init
+    case "$PKG_MANAGER" in
+        apk) apk search -e "$1" 2>/dev/null | grep -q "^$1" ;;
+        opkg) opkg list 2>/dev/null | grep -q "^$1" ;;
+    esac
 }
 
 wait_for_network() {
@@ -151,19 +195,19 @@ do_setup() {
     wait_for_network
 
     log "=== Обновление списков пакетов ==="
-    opkg update
+    pkg_update
 
     log "=== Установка пакетов для USB 3.0 и файловых систем ==="
-    opkg install kmod-usb3 kmod-usb-storage kmod-usb-storage-uas \
-                 block-mount e2fsprogs fdisk
+    pkg_install kmod-usb3 kmod-usb-storage kmod-usb-storage-uas \
+                block-mount e2fsprogs fdisk
 
     case "$CUDY_FS_TYPE" in
         ext4)
-            opkg install kmod-fs-ext4
+            pkg_install kmod-fs-ext4
             mount_fstype="ext4"
             ;;
         exfat)
-            opkg install kmod-fs-exfat exfat-utils
+            pkg_install kmod-fs-exfat exfat-utils
             mount_fstype="exfat"
             ;;
         ntfs3)
@@ -171,24 +215,24 @@ do_setup() {
             # более старых прошивках пакета kmod-fs-ntfs3 просто нет —
             # откатываемся на ntfs-3g (FUSE): работает на чтение/запись
             # везде, но медленнее и требует больше памяти/CPU.
-            if opkg list 2>/dev/null | grep -q '^kmod-fs-ntfs3'; then
-                opkg install kmod-fs-ntfs3
+            if pkg_available kmod-fs-ntfs3; then
+                pkg_install kmod-fs-ntfs3
                 mount_fstype="ntfs3"
             else
                 log "kmod-fs-ntfs3 недоступен в этой прошивке (нужно ядро 5.15+), ставлю ntfs-3g (FUSE, медленнее)"
-                opkg install kmod-fuse ntfs-3g
+                pkg_install kmod-fuse ntfs-3g
                 mount_fstype="ntfs-3g"
             fi
             ;;
     esac
 
     log "=== Установка SMB-сервера (ksmbd, легковесный) ==="
-    if opkg list 2>/dev/null | grep -q '^ksmbd-server'; then
-        opkg install ksmbd-server luci-app-ksmbd
+    if pkg_available ksmbd-server; then
+        pkg_install ksmbd-server luci-app-ksmbd
         smb_backend="ksmbd"
     else
         log "ksmbd-server недоступен в этой прошивке, ставлю Samba4 (тяжелее)"
-        opkg install samba4-server samba4-utils luci-app-samba4
+        pkg_install samba4-server samba4-utils luci-app-samba4
         smb_backend="samba4"
     fi
 
@@ -347,24 +391,24 @@ do_swap_disk() {
     log "Проверяю/ставлю модуль под файловую систему накопителя"
     case "$USB_DEVTYPE" in
         ext4)
-            opkg install kmod-fs-ext4 >/dev/null
+            pkg_install kmod-fs-ext4 >/dev/null
             mount_fstype="ext4"
             ;;
         vfat)
-            opkg install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1 >/dev/null
+            pkg_install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1 >/dev/null
             mount_fstype="vfat"
             ;;
         exfat)
-            opkg install kmod-fs-exfat exfat-utils >/dev/null
+            pkg_install kmod-fs-exfat exfat-utils >/dev/null
             mount_fstype="exfat"
             ;;
         ntfs)
-            if opkg list 2>/dev/null | grep -q '^kmod-fs-ntfs3'; then
-                opkg install kmod-fs-ntfs3 >/dev/null
+            if pkg_available kmod-fs-ntfs3; then
+                pkg_install kmod-fs-ntfs3 >/dev/null
                 mount_fstype="ntfs3"
             else
                 log "kmod-fs-ntfs3 недоступен, ставлю ntfs-3g (FUSE, медленнее)"
-                opkg install kmod-fuse ntfs-3g >/dev/null
+                pkg_install kmod-fuse ntfs-3g >/dev/null
                 mount_fstype="ntfs-3g"
             fi
             ;;

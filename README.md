@@ -151,7 +151,9 @@ logread | grep usb-storage-alert
 
 ## Что скрипт делает на роутере (режим setup)
 
-1. `opkg update` и установка пакетов: `kmod-usb3`, `kmod-usb-storage`,
+1. Обновление списков пакетов (`apk update` на OpenWrt 25.x, `opkg update` на
+   более старых прошивках — скрипт сам определяет, что есть в системе) и
+   установка пакетов: `kmod-usb3`, `kmod-usb-storage`,
    `kmod-usb-storage-uas`, `block-mount`, `e2fsprogs`, `fdisk`, модуль
    нужной файловой системы, и `ksmbd-server` + `luci-app-ksmbd` (либо
    `samba4-server` + `luci-app-samba4`, если `ksmbd` недоступен).
