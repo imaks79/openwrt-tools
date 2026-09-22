@@ -209,6 +209,34 @@ detect_current_backend() {
     echo ""
 }
 
+# Samba (passdb backend = smbpasswd — стандартный шаблон пакета samba4 в
+# OpenWrt) не умеет сама создавать системного пользователя: "smbpasswd -a"
+# требует, чтобы одноимённая запись уже была в /etc/passwd, иначе падает с
+# "Failed to add entry for user <имя>." (подтверждено исходниками Samba,
+# source3/passdb/passdb.c). Полноценного useradd/adduser на большинстве
+# сборок OpenWrt нет, поэтому запись дописывается в /etc/passwd и
+# /etc/group напрямую — это стандартный документированный способ для
+# OpenWrt (см. форум/вики). Shell выставлен в /bin/false: реальный вход по
+# SSH/логин через эту учётную запись невозможен, она нужна только для
+# авторизации в Samba. ksmbd этой проблемы не имеет — у него собственная,
+# не связанная с /etc/passwd база пользователей (ksmbd.adduser).
+ensure_system_user() {
+    user="$1"
+    if grep -q "^${user}:" /etc/passwd 2>/dev/null; then
+        return 0
+    fi
+
+    id=$(awk -F: '{print $3}' /etc/passwd | sort -n | tail -1)
+    id=$((id + 1))
+    [ "$id" -lt 1000 ] && id=1000
+
+    log "Создаю системного пользователя $user (uid/gid $id, shell /bin/false) — нужен smbpasswd для passdb backend=smbpasswd"
+    echo "${user}:x:${id}:${id}:${user}:/var:/bin/false" >> /etc/passwd
+    if ! grep -q "^${user}:" /etc/group 2>/dev/null; then
+        echo "${user}:x:${id}:" >> /etc/group
+    fi
+}
+
 # Устанавливает пакеты и настраивает UCI-секцию выбранного SMB-сервера,
 # создаёт SMB-пользователя (пароль запрашивается заново — базы паролей
 # ksmbd/samba4 отдельные и не переносятся друг в друга), включает и
@@ -267,6 +295,8 @@ setup_smb_backend() {
                 uci set samba4.usbshare.users="$OPENWRT_TOOL_SMB_USER"
             fi
             uci commit samba4
+
+            ensure_system_user "$OPENWRT_TOOL_SMB_USER"
 
             log "Создание пользователя SMB ($OPENWRT_TOOL_SMB_USER) — сейчас будет запрошен пароль дважды"
             smbpasswd -a "$OPENWRT_TOOL_SMB_USER" < /dev/tty
