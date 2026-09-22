@@ -232,15 +232,34 @@ detect_current_backend() {
 # SSH/логин через эту учётную запись невозможен, она нужна только для
 # авторизации в Samba. ksmbd этой проблемы не имеет — у него собственная,
 # не связанная с /etc/passwd база пользователей (ksmbd.adduser).
+#
+# Свободный UID/GID ищем перебором от безопасной базы (2000), а НЕ как
+# "максимальный существующий UID + 1": почти на любой прошивке в
+# /etc/passwd уже есть системная запись "nobody" с UID 65534 (общепринятый
+# unix-стандарт), и "макс+1" тогда даёт 65535 — а это ровно тот
+# sentinel-идентификатор (0xFFFF), которым САМА Samba внутренне обозначает
+# "неотображённого"/гостевого пользователя. Реальная учётка с таким UID
+# для Samba неотличима от "нет доступа" даже с верным паролем — итог:
+# authenticated-сессия с виду проходит, а любой доступ к файлам падает с
+# Permission denied (vfs_ChDir: "Current token: uid=65535, gid=65535").
+# Подтверждено на практике: именно так и произошло.
+id_in_use() {
+    id="$1"
+    awk -F: -v id="$id" '$3==id || $4==id {f=1} END{exit !f}' /etc/passwd 2>/dev/null && return 0
+    awk -F: -v id="$id" '$3==id {f=1} END{exit !f}' /etc/group 2>/dev/null && return 0
+    return 1
+}
+
 ensure_system_user() {
     user="$1"
     if grep -q "^${user}:" /etc/passwd 2>/dev/null; then
         return 0
     fi
 
-    id=$(awk -F: '{print $3}' /etc/passwd | sort -n | tail -1)
-    id=$((id + 1))
-    [ "$id" -lt 1000 ] && id=1000
+    id=2000
+    while id_in_use "$id"; do
+        id=$((id + 1))
+    done
 
     log "Создаю системного пользователя $user (uid/gid $id, shell /bin/false) — нужен smbpasswd для passdb backend=smbpasswd"
     echo "${user}:x:${id}:${id}:${user}:/var:/bin/false" >> /etc/passwd
