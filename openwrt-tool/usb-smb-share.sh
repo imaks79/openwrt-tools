@@ -727,6 +727,7 @@ do_setup() {
     pkg_available kmod-usb3 && pkg_install kmod-usb3
     pkg_available kmod-usb-storage-uas && pkg_install kmod-usb-storage-uas
 
+    mount_opts=""
     case "$OPENWRT_TOOL_FS_TYPE" in
         ext4)
             pkg_install kmod-fs-ext4
@@ -741,8 +742,20 @@ do_setup() {
             # откатываемся на ntfs-3g (FUSE): работает на чтение/запись
             # везде, но медленнее и требует больше памяти/CPU.
             if pkg_available kmod-fs-ntfs3; then
-                pkg_install kmod-fs-ntfs3
+                # ntfs3 конвертирует имена файлов через таблицу NLS, заданную
+                # опцией монтирования "iocharset" — без неё использует
+                # CONFIG_NLS_DEFAULT (обычно latin1/iso8859-1), который не
+                # умеет в кириллицу и другие не-латинские алфавиты: в
+                # логе тогда сыплются "ntfs3(sdX): failed to convert
+                # "0412" to default" (это код символа Unicode, например
+                # 0x0412 — кириллическая "В"), а сами такие файлы не
+                # отображаются (ls: No such file or directory) и не видны
+                # по сети через SMB. kmod-fs-ntfs3 сам по себе тянет только
+                # kmod-nls-base (без конкретных кодировок) — ставим
+                # kmod-nls-utf8 и добавляем iocharset=utf8 явно.
+                pkg_install kmod-fs-ntfs3 kmod-nls-utf8
                 mount_fstype="ntfs3"
+                mount_opts=",iocharset=utf8"
             else
                 log "kmod-fs-ntfs3 недоступен в этой прошивке (нужно ядро 5.15+), ставлю ntfs-3g (FUSE, медленнее)"
                 pkg_install kmod-fuse ntfs-3g
@@ -782,7 +795,7 @@ do_setup() {
     uci set fstab.usbmount.uuid="$USB_UUID"
     uci set fstab.usbmount.target="$OPENWRT_TOOL_MOUNT_POINT"
     uci set fstab.usbmount.fstype="$mount_fstype"
-    uci set fstab.usbmount.options="rw,noatime"
+    uci set fstab.usbmount.options="rw,noatime${mount_opts}"
     uci set fstab.usbmount.enabled="1"
     uci commit fstab
     block mount
@@ -877,6 +890,7 @@ do_swap_disk() {
     log "Выбран раздел $USB_DEV (UUID=$USB_UUID, файловая система: ${USB_DEVTYPE:-неизвестна})"
 
     log "Проверяю/ставлю модуль под файловую систему накопителя"
+    mount_opts=""
     case "$USB_DEVTYPE" in
         ext4)
             pkg_install kmod-fs-ext4 >/dev/null
@@ -891,8 +905,12 @@ do_swap_disk() {
             ;;
         ntfs)
             if pkg_available kmod-fs-ntfs3; then
-                pkg_install kmod-fs-ntfs3 >/dev/null
+                # См. подробный комментарий про iocharset в do_setup() —
+                # без него имена файлов не в ASCII (кириллица и т.п.) не
+                # отображаются и не открываются по SMB.
+                pkg_install kmod-fs-ntfs3 kmod-nls-utf8 >/dev/null
                 mount_fstype="ntfs3"
+                mount_opts=",iocharset=utf8"
             else
                 log "kmod-fs-ntfs3 недоступен, ставлю ntfs-3g (FUSE, медленнее)"
                 pkg_install kmod-fuse ntfs-3g >/dev/null
@@ -917,6 +935,10 @@ do_swap_disk() {
     log "Переключаю точку монтирования на новый накопитель"
     uci set fstab.usbmount.uuid="$USB_UUID"
     uci set fstab.usbmount.fstype="$mount_fstype"
+    # options тоже переписываем целиком (а не оставляем прежнее значение) —
+    # у разных дисков/ФС нужны разные опции (например, iocharset=utf8
+    # только для ntfs3), а предыдущий накопитель мог быть в другой ФС.
+    uci set fstab.usbmount.options="rw,noatime${mount_opts}"
     uci commit fstab
     block mount
     sleep 1
