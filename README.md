@@ -36,6 +36,20 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 troubleshooting NTFS, имена LED и все нюансы — в
 [cudy-tr3000-usb-share/README.md](02%20Projects/Github/openwrt-tools/cudy-tr3000-usb-share/README.md).
 
+### [cudy-wr3000u-wps-wifi-toggle](02%20Projects/Github/openwrt-tools/cudy-wr3000u-wps-wifi-toggle/README.md)
+
+Кнопка WPS роутера Cudy WR3000U → Wi-Fi вкл/выкл (оба диапазона разом) +
+два диапазонных LED панели (2.4 ГГц/5 ГГц), отражающих состояние каждого
+диапазона.
+
+```sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+```
+
+Имена LED (`blue:wlan-2ghz`/`blue:wlan-5ghz`) подтверждены на реальном
+устройстве; переопределение через переменные окружения и все нюансы — в
+[cudy-wr3000u-wps-wifi-toggle/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u-wps-wifi-toggle/README.md).
+
 ### [openwrt-tool](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md)
 
 Первоначальная настройка чистого OpenWrt-роутера: обновление системы,
@@ -53,8 +67,9 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-t
 
 ```
 openwrt-tools/
-├── cudy-tr3000-usb-share/   USB-шара + кнопки mode/reset для Cudy TR3000
-└── openwrt-tool/            Первоначальная настройка OpenWrt + AdGuard Home
+├── cudy-tr3000-usb-share/          USB-шара + кнопки mode/reset для Cudy TR3000
+├── cudy-wr3000u-wps-wifi-toggle/   Кнопка WPS → Wi-Fi вкл/выкл + LED для Cudy WR3000U
+└── openwrt-tool/                   Первоначальная настройка OpenWrt + AdGuard Home
 ```
 
 Каждый подкаталог — самостоятельный проект (свои скрипты, своя
