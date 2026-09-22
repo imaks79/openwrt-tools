@@ -29,7 +29,8 @@
 #
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
 #
-# Либо вручную, тем же способом, что и install.sh для USB-шары:
+# Либо вручную, тем же способом, что и usb-smb-share.sh для USB-шары
+# (см. ../openwrt-tool):
 #
 #   scp mode-button-wifi-toggle.sh root@<ip роутера>:/etc/rc.button/BTN_0
 #   ssh root@<ip роутера> chmod +x /etc/rc.button/BTN_0

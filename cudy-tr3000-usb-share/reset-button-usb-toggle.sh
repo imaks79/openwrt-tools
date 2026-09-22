@@ -4,8 +4,9 @@
 #
 #   - если накопитель уже смонтирован     -> безопасно размонтировать его;
 #   - если накопитель сейчас не смонтирован -> выполнить
-#     "CUDY_MODE=swap-disk sh install.sh", чтобы подхватить только что
-#     подключённый новый накопитель.
+#     "OPENWRT_TOOL_MODE=swap-disk sh usb-smb-share.sh" (универсальный
+#     скрипт из ../openwrt-tool), чтобы подхватить только что подключённый
+#     новый накопитель.
 #
 # Результат сигнализируется светодиодами:
 #   успех  -> белый (white:status) мигает 5 раз;
@@ -31,20 +32,29 @@
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
 #
 # Точка монтирования читается из той же UCI-секции, которую настраивает
-# install.sh (fstab.usbmount.target) — так эта кнопка всегда соответствует
-# реальной точке монтирования, даже если её меняли через CUDY_MOUNT_POINT
-# или CUDY_MODE=swap-disk. Если секции нет — используется /mnt/usb1.
+# usb-smb-share.sh (fstab.usbmount.target) — так эта кнопка всегда
+# соответствует реальной точке монтирования, даже если её меняли через
+# OPENWRT_TOOL_MOUNT_POINT или OPENWRT_TOOL_MODE=swap-disk. Если секции
+# нет — используется /mnt/usb1.
 #
-# Ограничение: "CUDY_MODE=swap-disk" запускается без подключённого
+# Требует, чтобы сетевая шара уже была настроена универсальным скриптом
+# из ../openwrt-tool:
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh
+#
+# Ограничение: "OPENWRT_TOOL_MODE=swap-disk" запускается без подключённого
 # терминала. Если к роутеру одновременно подключено НЕСКОЛЬКО
-# USB-накопителей, install.sh обычно просит выбрать раздел через
+# USB-накопителей, usb-smb-share.sh обычно просит выбрать раздел через
 # интерактивный ввод — в контексте кнопки такого терминала нет, поэтому
-# выбор не сработает и install.sh завершится с ошибкой (это будет
+# выбор не сработает и usb-smb-share.sh завершится с ошибкой (это будет
 # показано как ошибка — красный на 5 секунд). Подключайте к роутеру один
 # накопитель за раз, либо выбирайте раздел через SSH.
 
-INSTALL_SH="/root/cudy-tr3000-usb-share/install.sh"
-INSTALL_LOG="/root/cudy-tr3000-usb-share/install.log"
+INSTALL_SH="/root/openwrt-tool/usb-smb-share.sh"
+# В той же директории, куда usb-smb-share.sh уже гарантированно сохранил
+# себя при первом запуске (mkdir -p) — так append в этот лог не упадёт
+# из-за отсутствующей директории, даже если /root/cudy-tr3000-usb-share
+# на этом роутере вообще не создавалась.
+INSTALL_LOG="/root/openwrt-tool/reset-button-swap-disk.log"
 
 LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
@@ -123,7 +133,7 @@ handle_usb_button() {
     else
         echo "USB MOUNT NEW DISK" > /dev/console
         logger -t rc.button.reset "reset: $mp не смонтирован, запускаю swap-disk для нового накопителя"
-        if CUDY_MODE=swap-disk sh "$INSTALL_SH" >>"$INSTALL_LOG" 2>&1; then
+        if OPENWRT_TOOL_MODE=swap-disk sh "$INSTALL_SH" >>"$INSTALL_LOG" 2>&1; then
             logger -t rc.button.reset "reset: swap-disk успешно смонтировал новый накопитель"
             signal_success
         else
