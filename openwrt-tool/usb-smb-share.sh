@@ -68,6 +68,23 @@
 
 set -e
 
+# FAT-семейство (vfat/exfat/ntfs3/ntfs-3g) не хранит unix-права на диске —
+# они всегда ВЫЧИСЛЯЮТСЯ из опций монтирования uid=/gid=/umask=, а не
+# читаются с самого раздела. Без явных опций итоговые права зависят от
+# того, что именно записано в ACL/атрибутах на диске (у дисков,
+# отформатированных на Windows/Clonezilla/сторонним ПО, это может быть что
+# угодно — на практике встречалось "drwxr--r--" на корне точки
+# монтирования, без execute-бита для "прочих") — тогда любой SMB-юзер,
+# кроме root, получает "Permission denied" на chdir/доступ к файлам, хотя
+# логин и пароль верные (подтверждено логом smbd: "Current token: uid=N,
+# gid=N" — не 65535/гость, а настоящий uid, но без прав на сам каталог).
+# uid=0,gid=0,umask=000 делает точку монтирования полностью открытой на
+# уровне unix-прав (rwxrwxrwx) — реальный контроль доступа всё равно
+# выполняет сам SMB-сервер (ksmbd/samba4, "valid users"/пароль), а не
+# файловые права; на роутере, где кроме root никто больше по SSH/локально
+# не заходит, это не ослабляет реальную защиту.
+DOS_PERM_OPTS=",uid=0,gid=0,umask=000"
+
 SELF_DIR=/root/openwrt-tool
 SELF_PATH="$SELF_DIR/usb-smb-share.sh"
 LOG_FILE="$SELF_DIR/usb-smb-share.log"
@@ -730,6 +747,7 @@ setup_exfat() {
         exit 1
     fi
     mount_fstype="exfat"
+    mount_opts="${mount_opts}${DOS_PERM_OPTS}"
 }
 
 do_setup() {
@@ -785,11 +803,12 @@ do_setup() {
                 # kmod-nls-utf8 и добавляем iocharset=utf8 явно.
                 pkg_install kmod-fs-ntfs3 kmod-nls-utf8
                 mount_fstype="ntfs3"
-                mount_opts=",iocharset=utf8"
+                mount_opts=",iocharset=utf8${DOS_PERM_OPTS}"
             else
                 log "kmod-fs-ntfs3 недоступен в этой прошивке (нужно ядро 5.15+), ставлю ntfs-3g (FUSE, медленнее)"
                 pkg_install kmod-fuse ntfs-3g
                 mount_fstype="ntfs-3g"
+                mount_opts="$DOS_PERM_OPTS"
             fi
             ;;
         vfat)
@@ -797,6 +816,7 @@ do_setup() {
             # не годится для больших видео/бэкапов.
             pkg_install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1
             mount_fstype="vfat"
+            mount_opts="$DOS_PERM_OPTS"
             ;;
         f2fs)
             if ! pkg_available kmod-fs-f2fs; then
@@ -829,6 +849,14 @@ do_setup() {
     uci set fstab.usbmount.enabled="1"
     uci commit fstab
     block mount
+
+    # ext4/f2fs — обычные Linux-файловые системы: в отличие от FAT-семейства
+    # (см. DOS_PERM_OPTS выше), права на них реальные, хранятся на диске, и
+    # опциями монтирования не переопределяются — chmod применяем один раз
+    # сразу после монтирования, по тем же причинам permissive-доступа.
+    case "$mount_fstype" in
+        ext4|f2fs) chmod 777 "$OPENWRT_TOOL_MOUNT_POINT" 2>/dev/null || true ;;
+    esac
 
     log "Проверка firewall (зона lan должна разрешать input accept — обычно так по умолчанию)"
     uci show firewall | grep -A2 "zone\[.*\]\.name='lan'" || true
@@ -929,6 +957,7 @@ do_swap_disk() {
         vfat)
             pkg_install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1 >/dev/null
             mount_fstype="vfat"
+            mount_opts="$DOS_PERM_OPTS"
             ;;
         exfat)
             setup_exfat
@@ -940,11 +969,12 @@ do_swap_disk() {
                 # отображаются и не открываются по SMB.
                 pkg_install kmod-fs-ntfs3 kmod-nls-utf8 >/dev/null
                 mount_fstype="ntfs3"
-                mount_opts=",iocharset=utf8"
+                mount_opts=",iocharset=utf8${DOS_PERM_OPTS}"
             else
                 log "kmod-fs-ntfs3 недоступен, ставлю ntfs-3g (FUSE, медленнее)"
                 pkg_install kmod-fuse ntfs-3g >/dev/null
                 mount_fstype="ntfs-3g"
+                mount_opts="$DOS_PERM_OPTS"
             fi
             ;;
         f2fs)
@@ -977,6 +1007,14 @@ do_swap_disk() {
         log "Не удалось смонтировать $OPENWRT_TOOL_MOUNT_POINT. Проверьте 'logread' и 'dmesg' на роутере."
         exit 1
     fi
+
+    # См. комментарий у DOS_PERM_OPTS/do_setup(): ext4/f2fs — настоящие
+    # unix-права, опциями монтирования не переопределяются, chmod нужен
+    # отдельно и именно после монтирования (это может быть СОВСЕМ другой
+    # физический накопитель, чем при первоначальной настройке).
+    case "$mount_fstype" in
+        ext4|f2fs) chmod 777 "$OPENWRT_TOOL_MOUNT_POINT" 2>/dev/null || true ;;
+    esac
 
     df -h "$OPENWRT_TOOL_MOUNT_POINT"
     log "Готово: новый накопитель смонтирован в $OPENWRT_TOOL_MOUNT_POINT (драйвер: $mount_fstype)."
