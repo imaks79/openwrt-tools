@@ -1,8 +1,11 @@
 #!/bin/sh
 # ==============================================================================
-# Cudy WR3000U — кнопка WPS управляет Wi-Fi (оба диапазона разом) вместо
-# запуска WPS-подключения, и синхронно зажигает/гасит два диапазонных LED
-# на панели (2.4 ГГц / 5 ГГц).
+# Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения совмещает две
+# функции по длительности нажатия:
+#   - короткое (< 5 сек) — Wi-Fi вкл/выкл (оба диапазона разом) + два
+#     диапазонных LED на панели (2.4 ГГц / 5 ГГц);
+#   - долгое (>= 5 сек)  — безопасно монтирует/размонтирует USB-накопитель
+#     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
@@ -69,5 +72,9 @@ echo
 echo "Список реальных имён LED на этом роутере (сверьте с LED_2G_DIR/LED_5G_DIR внутри $TARGET):"
 ls /sys/class/leds/ 2>/dev/null || echo "(/sys/class/leds/ недоступен)"
 echo
-echo "Проверка без физической кнопки (эмуляция короткого нажатия):"
-echo "  ACTION=released BUTTON=wps $TARGET"
+echo "Проверка без физической кнопки:"
+echo "  короткое нажатие (Wi-Fi):        SEEN=0 ACTION=released BUTTON=wps $TARGET"
+echo "  долгое нажатие (USB, 5+ сек):    SEEN=5 ACTION=released BUTTON=wps $TARGET"
+echo
+echo "Долгое нажатие требует уже настроенной USB-шары:"
+echo "  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh"

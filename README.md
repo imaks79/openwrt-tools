@@ -35,9 +35,11 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 
 ### [cudy-wr3000u-wps-wifi-toggle](02%20Projects/Github/openwrt-tools/cudy-wr3000u-wps-wifi-toggle/README.md)
 
-Кнопка WPS роутера Cudy WR3000U → Wi-Fi вкл/выкл (оба диапазона разом) +
-два диапазонных LED панели (2.4 ГГц/5 ГГц), отражающих состояние каждого
-диапазона.
+Кнопка WPS роутера Cudy WR3000U совмещает две функции по длительности
+нажатия: короткое (< 5 сек) → Wi-Fi вкл/выкл (оба диапазона разом) + два
+диапазонных LED панели (2.4 ГГц/5 ГГц); долгое (≥ 5 сек) → безопасно
+монтирует/размонтирует USB-накопитель (требует предварительной настройки
+шары через `openwrt-tool/usb-smb-share.sh`).
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
@@ -82,7 +84,8 @@ openwrt-tools/
 
 Каждый подкаталог — свои скрипты и своя документация, разворачиваются на
 роутере одной командой `wget -O - <url> | sh` и хранят историю разработки
-в этом репозитории. Единственная зависимость между каталогами — кнопка
-reset в `cudy-tr3000-usb-share` вызывает `openwrt-tool/usb-smb-share.sh`
+в этом репозитории. Зависимость между каталогами одна и та же в двух
+местах: кнопка reset в `cudy-tr3000-usb-share` и долгое нажатие WPS в
+`cudy-wr3000u-wps-wifi-toggle` вызывают `openwrt-tool/usb-smb-share.sh`
 (режим `swap-disk`), поэтому шару сначала нужно настроить им; всё
 остальное независимо.
