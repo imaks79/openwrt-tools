@@ -445,16 +445,27 @@ smb_username_valid() {
 }
 
 # Создаёт пользователя в базе backend'а или, если он там уже есть, меняет
-# ему пароль — для ksmbd это один и тот же вызов (ksmbd.adduser сам решает,
-# добавить или обновить, по наличию пользователя в базе), для samba4
-# сначала нужен системный unix-аккаунт (ensure_system_user, см. выше).
+# ему пароль. НЕ определяем "уже есть или нет" сами (наш UCI-список
+# users — это только бухгалтерия доступа к шаре, а не факт наличия
+# записи в реальной базе backend'а: они могут разойтись, например если
+# кто-то почистил базу вручную через pdbedit/ksmbd.adduser -d, а UCI
+# список не тронул) — вместо этого используем идемпотентные вызовы
+# самих backend'ов, которые сами разбираются с этим по факту:
+#   - ksmbd.adduser без флагов сам смотрит, есть ли пользователь в базе
+#     (usm_lookup_user), и делает add или update соответственно;
+#   - smbpasswd -a на УЖЕ существующем пользователе тоже не ошибается —
+#     Samba тихо переключается на update (source3/passdb/passdb.c:
+#     "if (user_exists && (local_flags & LOCAL_ADD_USER)) local_flags
+#     &= ~LOCAL_ADD_USER"), поэтому "-a" безопасно использовать всегда,
+#     а не только при первом добавлении.
+# Для samba4 сначала нужен системный unix-аккаунт (ensure_system_user).
 smb_backend_set_password() {
     backend="$1"; user="$2"
     case "$backend" in
         ksmbd) ksmbd.adduser "$user" < /dev/tty ;;
         samba4)
             ensure_system_user "$user"
-            smbpasswd "$user" < /dev/tty
+            smbpasswd -a "$user" < /dev/tty
             ;;
     esac
 }
