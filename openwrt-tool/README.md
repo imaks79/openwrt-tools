@@ -211,8 +211,11 @@ OPENWRT_TOOL_SMB_USER         логин для доступа к шаре (по
 OPENWRT_TOOL_SMB_BACKEND      ksmbd | samba4 — если не задано, спросит диалогом
 OPENWRT_TOOL_GUEST            1 — разрешить анонимный доступ (не рекомендуется)
 OPENWRT_TOOL_WITH_CRON_ALERT  1 — сразу поставить ежедневную проверку заполнения диска
+OPENWRT_TOOL_USER_ACTION      add|passwd|delete|list — неинтерактивное управление
+                               пользователями (режим users, см. ниже); без неё —
+                               интерактивное меню
 OPENWRT_TOOL_MODE             setup (по умолчанию) | status | swap-disk |
-                               smb-backend | cron-alert
+                               smb-backend | users | cron-alert
 ```
 
 Не путайте с переменными `OPENWRT_TOOL_HOSTNAME`/`OPENWRT_TOOL_LAN_IP` у
@@ -295,6 +298,65 @@ SMB-сервера, новый ставится и настраивается с
 умолчанию, что и при обычной установке. Как и `OPENWRT_TOOL_MODE=setup`,
 эта команда требует, чтобы шара уже была настроена (`setup` хотя бы раз
 выполнялся).
+
+**Управление пользователями SMB** — добавить нового, сменить пароль
+существующему или убрать доступ, не трогая ни диск, ни сам SMB-сервер.
+Не требует сети (пакеты не ставятся) и работает мгновенно:
+
+```sh
+OPENWRT_TOOL_MODE=users sh /root/openwrt-tool/usb-smb-share.sh
+```
+
+Без дополнительных переменных открывается интерактивное меню прямо в
+SSH-сессии:
+
+```
+Управление пользователями SMB (backend: ksmbd)
+Текущие пользователи шары: smbuser
+  1) Добавить пользователя / задать пароль
+  2) Сменить пароль существующему
+  3) Удалить пользователя
+  4) Показать список и выйти
+Выбор [4]:
+```
+
+Пункт 1 работает и для уже существующего логина — тогда это просто смена
+пароля. Для одной команды без меню (автоматизация, скрипты) — тот же режим
+плюс `OPENWRT_TOOL_USER_ACTION`:
+
+```sh
+# Добавить второго пользователя (или сменить пароль, если уже есть)
+OPENWRT_TOOL_MODE=users OPENWRT_TOOL_USER_ACTION=add OPENWRT_TOOL_SMB_USER=family \
+  sh /root/openwrt-tool/usb-smb-share.sh
+
+# Сменить пароль существующему
+OPENWRT_TOOL_MODE=users OPENWRT_TOOL_USER_ACTION=passwd OPENWRT_TOOL_SMB_USER=family \
+  sh /root/openwrt-tool/usb-smb-share.sh
+
+# Убрать доступ (и из базы backend'а, и из списка users шары)
+OPENWRT_TOOL_MODE=users OPENWRT_TOOL_USER_ACTION=delete OPENWRT_TOOL_SMB_USER=family \
+  sh /root/openwrt-tool/usb-smb-share.sh
+
+# Только посмотреть список, без изменений
+OPENWRT_TOOL_MODE=users OPENWRT_TOOL_USER_ACTION=list \
+  sh /root/openwrt-tool/usb-smb-share.sh
+```
+
+Для `passwd`/`delete` `OPENWRT_TOOL_SMB_USER` нужно указать **явно** — у
+переменной есть дефолт `smbuser` (основной пользователь, созданный при
+`setup`), но неинтерактивные `passwd`/`delete` намеренно отказываются
+запускаться без явного имени: иначе забытая переменная случайно сменила
+бы пароль или удалила пользователя по умолчанию вместо ожидаемой ошибки.
+Для `add` дефолт безопасен и подходит — так `OPENWRT_TOOL_MODE=users
+OPENWRT_TOOL_USER_ACTION=add sh ...` без переменных просто пересоздаёт
+пароль `smbuser`, как при `setup`.
+
+Список пользователей хранится в той же UCI-опции, что и на шаге `setup`
+(`<backend>.usbshare.users`) — добавление/удаление правит её автоматически,
+руками в UCI лезть не нужно. Для samba4 при добавлении нового логина
+скрипт сам заводит под него служебную unix-запись в `/etc/passwd` (см.
+раздел «Известные особенности» ниже) — то же самое, что уже делает `setup`
+для первого пользователя.
 
 **Ежедневный алерт о заполнении диска** отдельно от первоначальной
 настройки (пишет в syslog предупреждение, если диск заполнен на 90% и

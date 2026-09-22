@@ -22,8 +22,11 @@
 #                                 интерактивно (см. ниже)
 #   OPENWRT_TOOL_GUEST            1 — разрешить анонимный доступ (не рекомендуется)
 #   OPENWRT_TOOL_WITH_CRON_ALERT  1 — сразу поставить ежедневную проверку заполнения диска
+#   OPENWRT_TOOL_USER_ACTION      add|passwd|delete|list — неинтерактивное управление
+#                                 пользователями (режим users, см. ниже); без неё —
+#                                 интерактивное меню
 #   OPENWRT_TOOL_MODE             setup (по умолчанию) | status | swap-disk |
-#                                 smb-backend | cron-alert
+#                                 smb-backend | users | cron-alert
 #
 # Примеры:
 #   OPENWRT_TOOL_FS_TYPE=exfat OPENWRT_TOOL_SHARE_NAME=movies \
@@ -48,6 +51,10 @@
 #                                  удаляется (освобождает флеш), новый настраивается
 #                                  заново (пароль SMB-пользователя вводится повторно —
 #                                  базы паролей ksmbd/samba4 не совместимы)
+#   OPENWRT_TOOL_MODE=users        добавить/удалить пользователя шары или сменить ему
+#                                  пароль — интерактивное меню (или одной командой
+#                                  через OPENWRT_TOOL_USER_ACTION), без переустановки
+#                                  чего-либо ещё; работает без сети (не требует пакетов)
 #   OPENWRT_TOOL_MODE=cron-alert   поставить ежедневную проверку заполнения диска отдельно
 #
 # Особенность: выбор раздела (если накопителей несколько), выбор SMB-сервера,
@@ -76,6 +83,11 @@ OPENWRT_TOOL_MOUNT_POINT="${OPENWRT_TOOL_MOUNT_POINT:-/mnt/usb1}"
 OPENWRT_TOOL_FS_TYPE="${OPENWRT_TOOL_FS_TYPE:-ext4}"
 OPENWRT_TOOL_SHARE_NAME="${OPENWRT_TOOL_SHARE_NAME:-share}"
 OPENWRT_TOOL_WORKGROUP="${OPENWRT_TOOL_WORKGROUP:-WORKGROUP}"
+# Запоминаем, был ли OPENWRT_TOOL_SMB_USER задан явно, ДО применения
+# дефолта — нужно do_users(), чтобы не дать неинтерактивному
+# passwd/delete молча сработать по умолчанию "smbuser" (это мог бы быть
+# совсем не тот пользователь, которого имел в виду вызывающий).
+OPENWRT_TOOL_SMB_USER_EXPLICIT="${OPENWRT_TOOL_SMB_USER:+yes}"
 OPENWRT_TOOL_SMB_USER="${OPENWRT_TOOL_SMB_USER:-smbuser}"
 OPENWRT_TOOL_SMB_BACKEND="${OPENWRT_TOOL_SMB_BACKEND:-}"
 OPENWRT_TOOL_MODE="${OPENWRT_TOOL_MODE:-setup}"
@@ -337,6 +349,255 @@ teardown_smb_backend() {
             pkg_remove samba4-server samba4-utils luci-app-samba4 2>/dev/null || true
             ;;
     esac
+}
+
+# --- Управление пользователями SMB (OPENWRT_TOOL_MODE=users) ---------------
+#
+# Источник истины о том, кому разрешён доступ к шаре — UCI-опция
+# "<backend>.usbshare.users" (пробел-разделённый список логинов). Все
+# функции ниже держат её в согласии с фактической базой паролей backend'а:
+# добавление/смена пароля/удаление пользователя одной командой правят и то,
+# и другое.
+
+# Текущий список пользователей активной шары (может быть пустым, если ещё
+# никого не добавляли, или если включён гостевой доступ без ограничений).
+smb_users_list() {
+    backend="$1"
+    case "$backend" in
+        ksmbd) uci -q get ksmbd.usbshare.users ;;
+        samba4) uci -q get samba4.usbshare.users ;;
+    esac
+}
+
+# Перезаписывает список пользователей шары в UCI и подхватывает изменение
+# в уже запущенной службе — сначала пробуем мягкий "reload" (не рвёт другие
+# активные подключения), если backend его не поддерживает — "restart".
+smb_users_save() {
+    backend="$1"
+    list="$2"
+    case "$backend" in
+        ksmbd)
+            uci set ksmbd.usbshare.users="$list"
+            uci commit ksmbd
+            /etc/init.d/ksmbd reload 2>/dev/null || /etc/init.d/ksmbd restart
+            ;;
+        samba4)
+            uci set samba4.usbshare.users="$list"
+            uci commit samba4
+            /etc/init.d/samba4 reload 2>/dev/null || /etc/init.d/samba4 restart
+            ;;
+    esac
+}
+
+# $1=текущий список $2=имя -> печатает список с добавленным именем (не
+# дублирует, если оно там уже есть).
+smb_users_add_to_list() {
+    list="$1"; user="$2"
+    for u in $list; do
+        [ "$u" = "$user" ] && { echo "$list"; return 0; }
+    done
+    if [ -n "$list" ]; then
+        echo "$list $user"
+    else
+        echo "$user"
+    fi
+}
+
+# $1=текущий список $2=имя -> печатает список без этого имени.
+smb_users_remove_from_list() {
+    list="$1"; user="$2"
+    out=""
+    for u in $list; do
+        [ "$u" = "$user" ] && continue
+        out="$out $u"
+    done
+    echo "${out# }"
+}
+
+# Непусто, без пробелов и двоеточий: двоеточие — разделитель полей и в
+# /etc/passwd, и в базе ksmbd (user:hash), пробел ломает пробел-разделённый
+# список users в UCI.
+smb_username_valid() {
+    case "$1" in
+        "") return 1 ;;
+        *[[:space:]:]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# Создаёт пользователя в базе backend'а или, если он там уже есть, меняет
+# ему пароль — для ksmbd это один и тот же вызов (ksmbd.adduser сам решает,
+# добавить или обновить, по наличию пользователя в базе), для samba4
+# сначала нужен системный unix-аккаунт (ensure_system_user, см. выше).
+smb_backend_set_password() {
+    backend="$1"; user="$2"
+    case "$backend" in
+        ksmbd) ksmbd.adduser "$user" < /dev/tty ;;
+        samba4)
+            ensure_system_user "$user"
+            smbpasswd "$user" < /dev/tty
+            ;;
+    esac
+}
+
+# Удаляет запись пользователя из базы backend'а. У samba4 сознательно НЕ
+# удаляет системную запись из /etc/passwd, которую мог создать
+# ensure_system_user — она безвредна без пароля в базе Samba (shell
+# /bin/false, входа нет); если нужно вычистить и её — userdel вручную.
+smb_backend_delete_user() {
+    backend="$1"; user="$2"
+    case "$backend" in
+        ksmbd) ksmbd.adduser -d "$user" ;;
+        samba4) smbpasswd -x "$user" ;;
+    esac
+}
+
+# Добавляет пользователя И выдаёт ему доступ к шаре (правит users в UCI).
+# Если пользователь уже есть в списке — трактуем как "сменить пароль", не
+# трогая UCI повторно.
+smb_user_add() {
+    backend="$1"; user="$2"
+    if ! smb_username_valid "$user"; then
+        log "Недопустимое имя пользователя '$user' (без пробелов и двоеточий)"
+        return 1
+    fi
+    current="$(smb_users_list "$backend")"
+    for u in $current; do
+        if [ "$u" = "$user" ]; then
+            log "$user уже есть в списке пользователей шары — меняю пароль"
+            smb_backend_set_password "$backend" "$user"
+            return 0
+        fi
+    done
+    log "Добавляю пользователя $user — сейчас будет запрошен пароль дважды"
+    smb_backend_set_password "$backend" "$user"
+    new_list="$(smb_users_add_to_list "$current" "$user")"
+    smb_users_save "$backend" "$new_list"
+    log "Готово: $user добавлен и получил доступ к шаре"
+}
+
+# Меняет пароль пользователю, который уже есть в списке доступа шары; для
+# постороннего логина (не из списка) отказывает — используйте "добавить".
+smb_user_passwd() {
+    backend="$1"; user="$2"
+    current="$(smb_users_list "$backend")"
+    found=0
+    for u in $current; do [ "$u" = "$user" ] && found=1; done
+    if [ "$found" != "1" ]; then
+        log "$user не входит в список пользователей текущей шары (${current:-пусто}) — сначала добавьте его"
+        return 1
+    fi
+    log "Меняю пароль для $user — сейчас будет запрошен пароль дважды"
+    smb_backend_set_password "$backend" "$user"
+}
+
+# Убирает пользователя и из списка доступа шары, и из базы backend'а.
+smb_user_delete() {
+    backend="$1"; user="$2"
+    current="$(smb_users_list "$backend")"
+    new_list="$(smb_users_remove_from_list "$current" "$user")"
+    if [ "$new_list" = "$current" ]; then
+        log "$user не входит в список пользователей текущей шары — нечего удалять"
+        return 1
+    fi
+    smb_backend_delete_user "$backend" "$user"
+    smb_users_save "$backend" "$new_list"
+    log "Готово: $user удалён, доступ к шаре отозван"
+    if [ -z "$new_list" ]; then
+        guest="$(uci -q get "${backend}.usbshare.guest_ok")"
+        if [ "$guest" != "yes" ]; then
+            log "ВНИМАНИЕ: список пользователей шары теперь пуст, а гостевой доступ выключен — шара стала недоступна никому, пока вы не добавите хотя бы одного пользователя"
+        fi
+    fi
+}
+
+# Точка входа для OPENWRT_TOOL_MODE=users. Два режима работы:
+#   - неинтерактивный (для автоматизации): задать OPENWRT_TOOL_USER_ACTION
+#     (add|passwd|delete|list) и, кроме list, OPENWRT_TOOL_SMB_USER;
+#   - интерактивный (по умолчанию, без OPENWRT_TOOL_USER_ACTION): меню в
+#     SSH-сессии, читает выбор/имя из /dev/tty (см. комментарий вверху
+#     файла про перекрытый stdin при "wget | sh").
+do_users() {
+    if ! uci get fstab.usbmount >/dev/null 2>&1; then
+        log "Секция fstab.usbmount не найдена — сначала выполните первоначальную настройку (OPENWRT_TOOL_MODE=setup)."
+        exit 1
+    fi
+    backend="$(detect_current_backend)"
+    if [ -z "$backend" ]; then
+        log "SMB-сервер ещё не настроен — сначала выполните OPENWRT_TOOL_MODE=setup."
+        exit 1
+    fi
+
+    case "${OPENWRT_TOOL_USER_ACTION:-}" in
+        add|passwd|delete)
+            # OPENWRT_TOOL_SMB_USER по умолчанию равен "smbuser" (имя
+            # пользователя, созданного при setup) — этого достаточно для
+            # "add" (создаст/обновит именно его), но для passwd/delete
+            # неявный дефолт слишком рискован: забыли явно указать имя —
+            # получите смену пароля/удаление ОСНОВНОГО пользователя шары
+            # вместо ожидаемой ошибки. Требуем явный OPENWRT_TOOL_SMB_USER
+            # для этих двух действий.
+            if [ -z "$OPENWRT_TOOL_SMB_USER_EXPLICIT" ] && [ "$OPENWRT_TOOL_USER_ACTION" != "add" ]; then
+                log "Укажите OPENWRT_TOOL_SMB_USER=<имя> явно вместе с OPENWRT_TOOL_USER_ACTION=$OPENWRT_TOOL_USER_ACTION (без явного имени действие не выполняется, чтобы случайно не задеть пользователя по умолчанию)"
+                exit 1
+            fi
+            case "$OPENWRT_TOOL_USER_ACTION" in
+                add) smb_user_add "$backend" "$OPENWRT_TOOL_SMB_USER" ;;
+                passwd) smb_user_passwd "$backend" "$OPENWRT_TOOL_SMB_USER" ;;
+                delete) smb_user_delete "$backend" "$OPENWRT_TOOL_SMB_USER" ;;
+            esac
+            return 0
+            ;;
+        list)
+            echo "Пользователи шары ($backend): $(smb_users_list "$backend")"
+            return 0
+            ;;
+        "") ;;
+        *)
+            log "Недопустимый OPENWRT_TOOL_USER_ACTION='$OPENWRT_TOOL_USER_ACTION' (add|passwd|delete|list)"
+            exit 1
+            ;;
+    esac
+
+    while true; do
+        current="$(smb_users_list "$backend")"
+        {
+            echo ""
+            echo "Управление пользователями SMB (backend: $backend)"
+            echo "Текущие пользователи шары: ${current:-<нет>}"
+            echo "  1) Добавить пользователя / задать пароль"
+            echo "  2) Сменить пароль существующему"
+            echo "  3) Удалить пользователя"
+            echo "  4) Показать список и выйти"
+            printf "Выбор [4]: "
+        } >&2
+        read -r choice < /dev/tty
+
+        case "$choice" in
+            1)
+                printf "Имя пользователя: " >&2
+                read -r user < /dev/tty
+                smb_user_add "$backend" "$user" || true
+                ;;
+            2)
+                printf "Имя пользователя: " >&2
+                read -r user < /dev/tty
+                smb_user_passwd "$backend" "$user" || true
+                ;;
+            3)
+                printf "Имя пользователя: " >&2
+                read -r user < /dev/tty
+                smb_user_delete "$backend" "$user" || true
+                ;;
+            ""|4)
+                echo "Текущие пользователи шары ($backend): ${current:-<нет>}"
+                break
+                ;;
+            *)
+                echo "Некорректный выбор '$choice'" >&2
+                ;;
+        esac
+    done
 }
 
 wait_for_network() {
@@ -715,9 +976,10 @@ case "$OPENWRT_TOOL_MODE" in
     status) do_status ;;
     swap-disk) do_swap_disk ;;
     smb-backend) do_smb_backend ;;
+    users) do_users ;;
     cron-alert) do_cron_alert ;;
     *)
-        log "Неизвестный OPENWRT_TOOL_MODE='$OPENWRT_TOOL_MODE' (setup|status|swap-disk|smb-backend|cron-alert)"
+        log "Неизвестный OPENWRT_TOOL_MODE='$OPENWRT_TOOL_MODE' (setup|status|swap-disk|smb-backend|users|cron-alert)"
         exit 1
         ;;
 esac
