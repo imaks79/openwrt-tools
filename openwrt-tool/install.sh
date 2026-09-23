@@ -27,6 +27,17 @@
 set -e
 
 STATE_FILE=/etc/openwrt-tool.stage
+# Счётчик подряд идущих неудачных попыток этапа 2. Нужен как предохранитель:
+# если этап 2 стабильно падает (например, на set -e из-за ненулевого кода
+# какого-нибудь /etc/init.d/*), без этого счётчика хук в rc.local остаётся
+# навсегда и роутер молча повторяет этап 2 (с перезаписью конфига AdGuard
+# Home и перезагрузкой) при каждом ребуте до бесконечности.
+STAGE2_ATTEMPTS_FILE=/etc/openwrt-tool.stage2-attempts
+MAX_STAGE2_ATTEMPTS=3
+# LAN IP, с которым в прошлый раз был записан конфиг AdGuard Home — нужен,
+# чтобы при смене ROUTER_LAN_IP на уже настроенном роутере можно было
+# точечно подменить старый адрес на новый, не перезаписывая весь файл.
+LAN_IP_STATE_FILE=/etc/openwrt-tool.lan-ip
 SELF_DIR=/root/openwrt-tool
 SELF_PATH="$SELF_DIR/install.sh"
 LOG_FILE="$SELF_DIR/install.log"
@@ -128,6 +139,27 @@ remove_reboot_hook() {
 }
 
 write_adguardhome_config() {
+    if [ -f /etc/adguardhome/adguardhome.yaml ]; then
+        # install.sh может запускаться повторно (смена LAN IP, ретраи после
+        # сбоя этапа 2 и т.п.). Полная перезапись стирала бы все настройки,
+        # сделанные через веб-интерфейс AdGuard Home после первой установки
+        # (пароль, фильтры, DNS-rewrite'ы, статические клиенты и т.д.) —
+        # поэтому существующий файл трогаем только точечно.
+        log "Конфигурация AdGuard Home уже существует, не перезаписываю (чтобы не потерять настройки из веб-интерфейса)."
+        if [ -f "$LAN_IP_STATE_FILE" ]; then
+            prev_ip=$(cat "$LAN_IP_STATE_FILE")
+            if [ -n "$prev_ip" ] && [ "$prev_ip" != "$ROUTER_LAN_IP" ]; then
+                log "LAN IP сменился ($prev_ip -> $ROUTER_LAN_IP), подменяю адрес привязки в adguardhome.yaml..."
+                prev_ip_esc=$(printf '%s' "$prev_ip" | sed 's/\./\\./g')
+                sed -i "s/$prev_ip_esc/$ROUTER_LAN_IP/g" /etc/adguardhome/adguardhome.yaml
+            fi
+        else
+            log "Не знаю прежний LAN IP (конфиг создан до этой версии скрипта). Если ROUTER_LAN_IP менялся, поправьте адрес привязки AdGuard Home вручную: веб-интерфейс -> Настройки -> Общие настройки."
+        fi
+        echo "$ROUTER_LAN_IP" >"$LAN_IP_STATE_FILE"
+        return
+    fi
+
     log "Записываю конфигурацию AdGuard Home..."
     mkdir -p /etc/adguardhome
     # Кавычки вокруг маркера heredoc обязательны: в конфиге есть bcrypt-хэш
@@ -343,6 +375,7 @@ ADGUARDHOME_EOF
     # $ROUTER_LAN_IP туда не подставится напрямую — подменяем адрес отдельным
     # sed после записи файла.
     sed -i "s/192\.168\.3\.1/$ROUTER_LAN_IP/g" /etc/adguardhome/adguardhome.yaml
+    echo "$ROUTER_LAN_IP" >"$LAN_IP_STATE_FILE"
 }
 
 apply_network_settings() {
@@ -394,8 +427,14 @@ apply_network_settings() {
     uci commit network
     uci commit dhcp
 
-    /etc/init.d/odhcpd disable
-    /etc/init.d/odhcpd stop
+    # "|| true": на некоторых прошивках /etc/init.d/odhcpd возвращает
+    # ненулевой код, если сервис и так уже выключен/остановлен. Под set -e
+    # это раньше молча убивало весь скрипт ПОСЛЕ того, как все uci-настройки
+    # уже применились и закоммитились — STATE_FILE так и оставался на "2", а
+    # хук в rc.local не снимался, из-за чего install.sh (и перезапись
+    # конфига AdGuard Home) молча повторялся при каждой перезагрузке.
+    /etc/init.d/odhcpd disable || true
+    /etc/init.d/odhcpd stop || true
 }
 
 # ---------------------------------------------------------------------------
@@ -410,6 +449,10 @@ STAGE=1
 case "$STAGE" in
 1)
     log "=== Этап 1/2: обновление системы ==="
+    # Свежий полный прогон (в т.ч. ручной перезапуск с rm -f "$STATE_FILE") —
+    # сбрасываем счётчик неудач этапа 2, чтобы старые сбои не мешали новой
+    # попытке.
+    rm -f "$STAGE2_ATTEMPTS_FILE"
     wait_for_network
     apk update
     apk upgrade
@@ -427,6 +470,19 @@ case "$STAGE" in
 
 2)
     log "=== Этап 2/2: установка пакетов и применение конфигурации ==="
+    # Предохранитель от бесконечного молчаливого цикла: если этап 2 (после
+    # перезагрузки хук в rc.local запускает его сам) падает подряд слишком
+    # много раз, снимаем хук и останавливаемся с явным сообщением, вместо
+    # того чтобы роутер вечно перезагружался и переписывал конфиги.
+    stage2_attempts=0
+    [ -f "$STAGE2_ATTEMPTS_FILE" ] && stage2_attempts=$(cat "$STAGE2_ATTEMPTS_FILE")
+    stage2_attempts=$((stage2_attempts + 1))
+    echo "$stage2_attempts" >"$STAGE2_ATTEMPTS_FILE"
+    if [ "$stage2_attempts" -gt "$MAX_STAGE2_ATTEMPTS" ]; then
+        log "Этап 2 уже падал $MAX_STAGE2_ATTEMPTS раз(а) подряд после перезагрузки — что-то ломается стабильно. Снимаю автозапуск из rc.local, чтобы роутер не уходил в бесконечный цикл. Смотрите $LOG_FILE, чините вручную и перезапустите: rm -f $STATE_FILE $STAGE2_ATTEMPTS_FILE && sh $SELF_PATH"
+        remove_reboot_hook
+        exit 1
+    fi
     wait_for_network
     apk update
     apk add luci-app-adguardhome
@@ -458,12 +514,13 @@ case "$STAGE" in
     # смены IP, AdGuard Home не сможет забиндиться на $ROUTER_LAN_IP:8080 и
     # откатится в мастер первого запуска на 0.0.0.0:3000.
     if [ -x /etc/init.d/adguardhome ]; then
-        /etc/init.d/adguardhome enable
+        /etc/init.d/adguardhome enable || true
     fi
 
     apply_network_settings
 
     echo 3 >"$STATE_FILE"
+    rm -f "$STAGE2_ATTEMPTS_FILE"
     remove_reboot_hook
 
     log "Настройка завершена. Финальная перезагрузка..."
