@@ -44,10 +44,17 @@ OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 
 Со своим адресом LAN вместо `192.168.3.1` (подставится сразу везде: в
 `network.lan.ipaddr`, DNS-опцию DHCP и конфиг AdGuard Home — вручную
-ничего досогласовывать не нужно):
+ничего досогласовывать не нужно; маска подсети всегда `/24`):
 
 ```sh
+wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
 OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+```
+
+Тот же вариант одной строкой (без сохранения файла заранее):
+
+```sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh | OPENWRT_TOOL_LAN_IP=192.168.50.1 sh
 ```
 
 Адрес должен быть в форме `A.B.C.D`, последний октет не может быть `0`

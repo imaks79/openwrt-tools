@@ -3,10 +3,10 @@
 # OpenWrt + AdGuard Home — скрипт первоначальной настройки роутера
 #
 # Использование на роутере (через SSH):
-#   wget -O - https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh | sh
 #
 # Чтобы задать уникальный hostname для конкретного роутера:
-#   wget -O /root/install.sh https://raw.githubusercontent.com/<USER>/<REPO>/main/install.sh
+#   wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
 #   OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 #
 # Чтобы задать свой адрес LAN вместо 192.168.3.1 (подставится во все
@@ -117,7 +117,7 @@ install_reboot_hook() {
         chmod +x /etc/rc.local
     fi
     grep -qF "$SELF_PATH" /etc/rc.local 2>/dev/null && return 0
-    sed -i "\|^exit 0|i OPENWRT_TOOL_HOSTNAME='$ROUTER_HOSTNAME' sh $SELF_PATH >> $LOG_FILE 2>&1 &" /etc/rc.local
+    sed -i "\|^exit 0|i OPENWRT_TOOL_HOSTNAME='$ROUTER_HOSTNAME' OPENWRT_TOOL_LAN_IP='$ROUTER_LAN_IP' sh $SELF_PATH >> $LOG_FILE 2>&1 &" /etc/rc.local
 }
 
 remove_reboot_hook() {
