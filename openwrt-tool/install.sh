@@ -379,6 +379,12 @@ apply_network_settings() {
     uci set dhcp.lan.ra_management='0'
     uci -q delete dhcp.lan.ra_flags
     uci set dhcp.@dnsmasq[0].port='5353'
+    # Список, а не значение: при повторном запуске (например, со сменой
+    # ROUTER_LAN_IP) add_list без предварительной очистки добавил бы новый
+    # IP вторым элементом, оставив старый — dnsmasq раздавал бы клиентам
+    # DNS-опцию (6) сразу с обоими адресами, и часть устройств цеплялась бы
+    # за уже недоступный старый адрес.
+    uci -q delete dhcp.lan.dhcp_option
     uci add_list dhcp.lan.dhcp_option="6,$ROUTER_LAN_IP"
 
     uci commit system
