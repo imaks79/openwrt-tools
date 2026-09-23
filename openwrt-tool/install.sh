@@ -5,14 +5,17 @@
 # Использование на роутере (через SSH):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh | sh
 #
-# Чтобы задать уникальный hostname для конкретного роутера:
-#   wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
-#   OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
+# Чтобы задать уникальный hostname для конкретного роутера (сразу качаем в
+# /root/openwrt-tool/install.sh — именно туда скрипт сохраняет себя сам,
+# поэтому повторного скачивания при первом запуске не будет):
+#   mkdir -p /root/openwrt-tool
+#   wget -O /root/openwrt-tool/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
+#   OPENWRT_TOOL_HOSTNAME=router-05 sh /root/openwrt-tool/install.sh
 #
 # Чтобы задать свой адрес LAN вместо 192.168.3.1 (подставится во все
 # зависимые параметры — network.lan.ipaddr, DNS-опцию DHCP, конфиг
 # AdGuard Home):
-#   OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+#   OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/openwrt-tool/install.sh
 #
 # Скрипт сам переживает две перезагрузки (после обновления пакетов и после
 # финальной настройки): он сохраняет себя в /root/openwrt-tool/install.sh,

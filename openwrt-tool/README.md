@@ -35,11 +35,16 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-t
 заходить по SSH не нужно.
 
 С уникальным именем роутера (полезно при массовой настройке нескольких
-устройств одновременно):
+устройств одновременно). Качаем сразу в `/root/openwrt-tool/install.sh` —
+именно туда скрипт сохраняет себя сам при первом запуске (см.
+«Как это работает» ниже), поэтому при таком пути повторного скачивания
+не будет и файл на диске сразу совпадёт с тем, что дальше использует
+hook после перезагрузки:
 
 ```sh
-wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
-OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
+mkdir -p /root/openwrt-tool
+wget -O /root/openwrt-tool/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
+OPENWRT_TOOL_HOSTNAME=router-05 sh /root/openwrt-tool/install.sh
 ```
 
 Со своим адресом LAN вместо `192.168.3.1` (подставится сразу везде: в
@@ -47,8 +52,9 @@ OPENWRT_TOOL_HOSTNAME=router-05 sh /root/install.sh
 ничего досогласовывать не нужно; маска подсети всегда `/24`):
 
 ```sh
-wget -O /root/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
-OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/install.sh
+mkdir -p /root/openwrt-tool
+wget -O /root/openwrt-tool/install.sh https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/install.sh
+OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/openwrt-tool/install.sh
 ```
 
 Тот же вариант одной строкой (без сохранения файла заранее):
