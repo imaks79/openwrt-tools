@@ -8,7 +8,7 @@
 # этим скриптом (см. openwrt-tool/README.md).
 #
 # Использование на роутере (через SSH):
-#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
 #
 # Скачивает reset-button-usb-toggle.sh из этого репозитория и кладёт его в
 # /etc/rc.button/reset — стандартный хук procd для физической кнопки reset.
@@ -22,13 +22,13 @@
 #   ls /sys/class/leds/
 # и при необходимости переопределите перед установкой:
 #   LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
 # ==============================================================================
 
 set -e
 
 TARGET=/etc/rc.button/reset
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/reset-button-usb-toggle.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/reset-button-usb-toggle.sh"
 SYSUPGRADE_CONF=/etc/sysupgrade.conf
 
 echo "Скачиваю $SCRIPT_URL -> $TARGET"

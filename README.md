@@ -4,13 +4,13 @@
 подкаталоге со своей подробной документацией — здесь только обзор и
 команды для быстрого запуска одной строкой, чтобы не искать их по разным
 репозиториям или по всему документу. Большинство подкаталогов полностью
-самостоятельны; исключение — кнопка reset в `cudy-tr3000-usb-share`,
+самостоятельны; исключение — кнопка reset в `cudy-tr3000`,
 которая работает поверх шары, настроенной универсальным
 `openwrt-tool/usb-smb-share.sh` (см. ниже).
 
 ## Быстрый старт
 
-### [cudy-tr3000-usb-share](02%20Projects/Github/openwrt-tools/cudy-tr3000-usb-share/README.md)
+### [cudy-tr3000](02%20Projects/Github/openwrt-tools/cudy-tr3000/README.md)
 
 Два опциональных дополнения для физических кнопок Cudy TR3000 (сама
 сетевая шара теперь настраивается универсальным `usb-smb-share.sh` из
@@ -19,7 +19,7 @@
 Переключатель "mode" → Wi-Fi вкл/выкл + красный LED:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 ```
 
 Кнопка reset → короткое нажатие подключает новый накопитель или
@@ -27,13 +27,13 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 `usb-smb-share.sh`):
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
 ```
 
 Имена LED и все нюансы — в
-[cudy-tr3000-usb-share/README.md](02%20Projects/Github/openwrt-tools/cudy-tr3000-usb-share/README.md).
+[cudy-tr3000/README.md](02%20Projects/Github/openwrt-tools/cudy-tr3000/README.md).
 
-### [cudy-wr3000u-wps-wifi-toggle](02%20Projects/Github/openwrt-tools/cudy-wr3000u-wps-wifi-toggle/README.md)
+### [cudy-wr3000u](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md)
 
 Кнопка WPS роутера Cudy WR3000U совмещает две функции по длительности
 нажатия: короткое (< 5 сек) → Wi-Fi вкл/выкл (оба диапазона разом) + два
@@ -42,12 +42,12 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 шары через `openwrt-tool/usb-smb-share.sh`).
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
 Имена LED (`blue:wlan-2ghz`/`blue:wlan-5ghz`) подтверждены на реальном
 устройстве; переопределение через переменные окружения и все нюансы — в
-[cudy-wr3000u-wps-wifi-toggle/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u-wps-wifi-toggle/README.md).
+[cudy-wr3000u/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md).
 
 ### [openwrt-tool](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md)
 
@@ -77,15 +77,15 @@ Home, troubleshooting NTFS, логи — в
 
 ```
 openwrt-tools/
-├── cudy-tr3000-usb-share/          Кнопки mode/reset для Cudy TR3000 (поверх openwrt-tool)
-├── cudy-wr3000u-wps-wifi-toggle/   Кнопка WPS → Wi-Fi вкл/выкл + LED для Cudy WR3000U
+├── cudy-tr3000/                    Кнопки mode/reset для Cudy TR3000 (поверх openwrt-tool)
+├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi вкл/выкл + LED для Cudy WR3000U
 └── openwrt-tool/                   Два универсальных скрипта: setup+AdGuard Home и USB-шара
 ```
 
 Каждый подкаталог — свои скрипты и своя документация, разворачиваются на
 роутере одной командой `wget -O - <url> | sh` и хранят историю разработки
 в этом репозитории. Зависимость между каталогами одна и та же в двух
-местах: кнопка reset в `cudy-tr3000-usb-share` и долгое нажатие WPS в
-`cudy-wr3000u-wps-wifi-toggle` вызывают `openwrt-tool/usb-smb-share.sh`
+местах: кнопка reset в `cudy-tr3000` и долгое нажатие WPS в
+`cudy-wr3000u` вызывают `openwrt-tool/usb-smb-share.sh`
 (режим `swap-disk`), поэтому шару сначала нужно настроить им; всё
 остальное независимо.

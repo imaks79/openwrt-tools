@@ -1,4 +1,4 @@
-# cudy-tr3000-usb-share
+# cudy-tr3000
 
 Два физических дополнения для Cudy TR3000 (прошивка на базе OpenWrt/LuCI):
 
@@ -36,7 +36,7 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-t
 
 Этот каталог — часть монорепозитория
 [openwrt-tools](https://github.com/imaks79/openwrt-tools), поэтому
-raw-ссылки внутри скриптов включают префикс `cudy-tr3000-usb-share/`.
+raw-ссылки внутри скриптов включают префикс `cudy-tr3000/`.
 Если форкаете или переносите **именно этот каталог** в отдельный
 репозиторий — поменяйте `<USER>/<REPO>` (или полный путь, если у нового
 репозитория нет такого подкаталога) в переменной `SCRIPT_URL` в обоих
@@ -60,7 +60,7 @@ Wi-Fi выключен — вместо белого статусного све
 Установка одной строкой (лучше по кабелю/LAN — см. предупреждение ниже):
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 ```
 
 Скрипт `install-mode-button.sh` скачивает `mode-button-wifi-toggle.sh` и
@@ -88,7 +88,7 @@ v1 (OpenWrt 25.12.5, mediatek/filogic). На другой модели/прош�
 
 ```sh
 LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 ```
 
 **Важно:** если вы зашли по SSH через сам Wi-Fi (а не по кабелю), то
@@ -157,7 +157,7 @@ ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 Установка одной строкой:
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
 ```
 
 Заменяет штатный `/etc/rc.button/reset` и добавляет его в
@@ -171,7 +171,7 @@ v1. На другой модели/прошивке сначала провер�
 
 ```sh
 LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-reset-button.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
 ```
 
 Проверить без физической кнопки (эмуляция короткого нажатия):

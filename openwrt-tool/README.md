@@ -298,7 +298,7 @@ OpenWrt автомонтаж (`fstab.@global[0].anon_mount`) по умолчан
 подключается только UUID, уже прописанный в `fstab.usbmount`. Так и
 задумано (иначе любая случайно воткнутая флешка монтировалась бы сама).
 Именно поэтому существует `swap-disk`/долгое нажатие кнопки (см. кнопки в
-`cudy-tr3000-usb-share`/`cudy-wr3000u-wps-wifi-toggle`) — они прописывают
+`cudy-tr3000`/`cudy-wr3000u`) — они прописывают
 UUID нового накопителя в `fstab.usbmount`, после чего именно ЭТОТ
 накопитель начинает подхватываться автоматически при последующих
 подключениях/перезагрузках.
@@ -564,9 +564,9 @@ OPENWRT_TOOL_MODE=status sh /root/openwrt-tool/usb-smb-share.sh
 используют режим `swap-disk`, описанный выше, для подключения/безопасного
 размонтирования USB-накопителя без захода по SSH:
 
-- **Cudy TR3000** — [`cudy-tr3000-usb-share`](../cudy-tr3000-usb-share/README.md):
+- **Cudy TR3000** — [`cudy-tr3000`](../cudy-tr3000/README.md):
   короткое нажатие штатной кнопки reset.
-- **Cudy WR3000U** — [`cudy-wr3000u-wps-wifi-toggle`](../cudy-wr3000u-wps-wifi-toggle/README.md):
+- **Cudy WR3000U** — [`cudy-wr3000u`](../cudy-wr3000u/README.md):
   долгое нажатие (5+ сек) кнопки WPS (короткое нажатие там же переключает
   Wi-Fi).
 
@@ -590,7 +590,7 @@ grep -n '^SCRIPT_URL=' install.sh usb-smb-share.sh
 запуска — у `usb-smb-share.sh`). Если форкаете или переносите именно этот
 каталог в отдельный репозиторий — поменяйте обе константы (или полный
 путь, если у нового репозитория нет такого подкаталога). Если также
-переносите `cudy-tr3000-usb-share` или `cudy-wr3000u-wps-wifi-toggle` —
+переносите `cudy-tr3000` или `cudy-wr3000u` —
 их `reset-button-usb-toggle.sh` и `wps-button-wifi-toggle.sh`
 соответственно жёстко ссылаются на `/root/openwrt-tool/usb-smb-share.sh`,
 эту ссылку нужно обновить отдельно (см. README в соответствующем

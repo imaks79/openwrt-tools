@@ -4,7 +4,7 @@
 # белого статусного, пока Wi-Fi выключен.
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
-#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # Скачивает mode-button-wifi-toggle.sh из этого репозитория и кладёт его в
 # /etc/rc.button/BTN_0 — так называется хук, который procd вызывает на
@@ -23,7 +23,7 @@
 #   ls /sys/class/leds/
 # и при необходимости переопределите перед установкой:
 #   LED_RED_DIR=/sys/class/leds/<имя> LED_WHITE_DIR=/sys/class/leds/<имя> \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/install-mode-button.sh | sh
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi (а не по кабелю/LAN) —
 # переключение флажка в положение "выключено" оборвёт вашу же SSH-сессию
@@ -33,7 +33,7 @@
 set -e
 
 TARGET=/etc/rc.button/BTN_0
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000-usb-share/mode-button-wifi-toggle.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/mode-button-wifi-toggle.sh"
 SYSUPGRADE_CONF=/etc/sysupgrade.conf
 
 echo "Скачиваю $SCRIPT_URL -> $TARGET"

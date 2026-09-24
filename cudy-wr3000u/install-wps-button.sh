@@ -8,7 +8,7 @@
 #     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
-#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
 # Скачивает wps-button-wifi-toggle.sh из этого репозитория и кладёт его в
 # /etc/rc.button/wps — так называется хук, который procd вызывает на
@@ -22,7 +22,7 @@
 #   ls /sys/class/leds/
 # и при необходимости переопределите перед установкой:
 #   LED_2G_DIR=/sys/class/leds/<имя> LED_5G_DIR=/sys/class/leds/<имя> \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
 # ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi (а не по кабелю/LAN) —
 # нажатие кнопки может выключить Wi-Fi и оборвать вашу же SSH-сессию
@@ -32,7 +32,7 @@
 set -e
 
 TARGET=/etc/rc.button/wps
-SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/wps-button-wifi-toggle.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/wps-button-wifi-toggle.sh"
 SYSUPGRADE_CONF=/etc/sysupgrade.conf
 
 # Если на роутере уже есть штатный /etc/rc.button/wps (например, для

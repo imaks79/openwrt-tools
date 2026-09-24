@@ -1,4 +1,4 @@
-# cudy-wr3000u-wps-wifi-toggle
+# cudy-wr3000u
 
 Кнопка WPS на роутере Cudy WR3000U (OpenWrt, MediaTek MT7981B/Filogic)
 вместо запуска WPS-подключения совмещает две функции по длительности
@@ -20,7 +20,7 @@
 см. предупреждение ниже.
 
 ```sh
-wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
 Скрипт скачивает `wps-button-wifi-toggle.sh` и кладёт его в
@@ -54,7 +54,7 @@ blue:power       blue:wan-online  blue:wlan-5ghz   mt76-phy1        red:wps
 
 ```sh
 LED_2G_DIR=/sys/class/leds/<имя> LED_5G_DIR=/sys/class/leds/<имя> \
-  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u-wps-wifi-toggle/install-wps-button.sh | sh
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
 Установщик также печатает содержимое `/sys/class/leds/` в конце для
