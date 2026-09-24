@@ -487,7 +487,7 @@ case "$STAGE" in
     apk update
     apk add luci-app-adguardhome
     apk add wpad-openssl
-
+    # apk add luci-proto-wireguard
     log "Устанавливаю podkop..."
     # Скрипт podkop задаёт интерактивные вопросы (y/n) через `read`. Так как
     # наш install.sh обычно запускается как "wget -O - ... | sh", stdin уже
@@ -496,15 +496,19 @@ case "$STAGE" in
     # на все вопросы заранее через `yes` (подтверждаем русский язык интерфейса
     # и прочие da/no-подсказки значением по умолчанию).
     yes | sh <(wget -O - https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh) \
-        || log "ВНИМАНИЕ: установка podkop завершилась с ошибкой, продолжаю"
+        || log "ВНИМАНИЕ: установка podkop завершилась с ошибкой, продолжаю."
 
     log "Устанавливаю тему luci-theme-proton2025..."
     wget -qO- https://raw.githubusercontent.com/ChesterGoodiny/luci-theme-proton2025/main/install.sh | sh \
-        || log "ВНИМАНИЕ: установка темы завершилась с ошибкой, продолжаю"
-    
+        || log "ВНИМАНИЕ: установка темы завершилась с ошибкой, продолжаю."
+
     # log "Устанавливаю roamd ..."
-    # wget -O - https://raw.githubusercontent.com/Ground-Zerro/roamd/main/install.sh | sh
-    # || log "ВНИМАНИЕ: установка скрипта roamd завершилась с ошибкой, продолжаю"
+    # wget -O - https://raw.githubusercontent.com/Ground-Zerro/roamd/main/install.sh | sh \
+    #   || log "ВНИМАНИЕ: установка скрипта roamd завершилась с ошибкой, продолжаю."
+
+    # log "Устанавливаю AmneziaWG ..."
+    # sh <(wget -O - https://raw.githubusercontent.com/Slava-Shchipunov/awg-openwrt/refs/heads/master/amneziawg-install.sh) -en \
+    #   || log "ВНИМАНИЕ: установка скрипта AmneziaWG завершилась с ошибкой, продолжаю."
 
     write_adguardhome_config
     # Конфиг AdGuard Home биндится на $ROUTER_LAN_IP — этот адрес появится на
