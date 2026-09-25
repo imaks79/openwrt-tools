@@ -62,8 +62,25 @@ DHCP_LIMIT=150
 
 mkdir -p "$SELF_DIR"
 
+# При запуске из хука в rc.local (см. install_reboot_hook) OPENWRT_TOOL_BACKGROUND=1
+# и вывод всего скрипта разом перенаправляется в лог-файл через exec — это
+# нужно, чтобы туда попадал и "сырой" вывод внешних команд (apk, установщики
+# podkop/темы), не обёрнутый в log(). В этом режиме log() просто пишет в
+# stdout (echo), который уже утекает в файл — если бы log() ещё и делал
+# tee -a "$LOG_FILE", каждая строка задваивалась бы: один раз от tee
+# напрямую в файл, второй раз через тот же exec-редирект её собственного
+# stdout. При интерактивном запуске (wget | sh) redirect не включается, и
+# log() по-прежнему сама пишет в файл через tee, как раньше.
+if [ -n "$OPENWRT_TOOL_BACKGROUND" ]; then
+    exec >>"$LOG_FILE" 2>&1
+fi
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+    if [ -n "$OPENWRT_TOOL_BACKGROUND" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+    fi
 }
 
 validate_lan_ip() {
@@ -131,7 +148,10 @@ install_reboot_hook() {
         chmod +x /etc/rc.local
     fi
     grep -qF "$SELF_PATH" /etc/rc.local 2>/dev/null && return 0
-    sed -i "\|^exit 0|i OPENWRT_TOOL_HOSTNAME='$ROUTER_HOSTNAME' OPENWRT_TOOL_LAN_IP='$ROUTER_LAN_IP' sh $SELF_PATH >> $LOG_FILE 2>&1 &" /etc/rc.local
+    # Вывод в лог-файл теперь перенаправляет сам скрипт (см. exec выше, по
+    # флагу OPENWRT_TOOL_BACKGROUND) — раньше redirect стоял и тут, и внутри
+    # log() (через tee), из-за чего каждая строка лога задваивалась.
+    sed -i "\|^exit 0|i OPENWRT_TOOL_BACKGROUND=1 OPENWRT_TOOL_HOSTNAME='$ROUTER_HOSTNAME' OPENWRT_TOOL_LAN_IP='$ROUTER_LAN_IP' sh $SELF_PATH &" /etc/rc.local
 }
 
 remove_reboot_hook() {
@@ -405,12 +425,19 @@ apply_network_settings() {
     uci set network.wan.delegate='0'
     uci set network.wan6.proto='none'
     uci set network.lan.ipv6='0'
-    uci -q delete dhcp.lan.ra
-    uci -q delete network.globals.ula_prefix
+    # "|| true": как и в odhcpd/attendedsysupgrade ниже, `-q` лишь глушит
+    # вывод ошибки, но не код возврата. Если опция и так не задана в
+    # текущем конфиге (типично для дефолтного /etc/config/dhcp на Cudy),
+    # `uci delete` вернёт ненулевой код, и под `set -e` скрипт молча
+    # оборвётся прямо здесь — ровно в этом месте STATE_FILE остаётся на "2",
+    # хук в rc.local не снимается, и install.sh молча повторяется с нуля
+    # при каждом ребуте.
+    uci -q delete dhcp.lan.ra || true
+    uci -q delete network.globals.ula_prefix || true
     uci set dhcp.lan.ra='disabled'
     uci set dhcp.lan.dhcpv6='disabled'
     uci set dhcp.lan.ra_management='0'
-    uci -q delete dhcp.lan.ra_flags
+    uci -q delete dhcp.lan.ra_flags || true
     uci set dhcp.@dnsmasq[0].port='5353'
     # Список, а не значение: при повторном запуске (например, со сменой
     # ROUTER_LAN_IP) add_list без предварительной очистки добавил бы новый
@@ -502,9 +529,9 @@ case "$STAGE" in
     wget -qO- https://raw.githubusercontent.com/ChesterGoodiny/luci-theme-proton2025/main/install.sh | sh \
         || log "ВНИМАНИЕ: установка темы завершилась с ошибкой, продолжаю."
 
-    # log "Устанавливаю roamd ..."
-    # wget -O - https://raw.githubusercontent.com/Ground-Zerro/roamd/main/install.sh | sh \
-    #   || log "ВНИМАНИЕ: установка скрипта roamd завершилась с ошибкой, продолжаю."
+    log "Устанавливаю roamd ..."
+    yes | sh <(wget -O - https://raw.githubusercontent.com/Ground-Zerro/roamd/main/install.sh) \
+        || log "ВНИМАНИЕ: установка скрипта roamd завершилась с ошибкой, продолжаю."
 
     # log "Устанавливаю AmneziaWG ..."
     # sh <(wget -O - https://raw.githubusercontent.com/Slava-Shchipunov/awg-openwrt/refs/heads/master/amneziawg-install.sh) -en \
