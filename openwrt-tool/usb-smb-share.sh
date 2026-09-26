@@ -14,7 +14,10 @@
 #
 # Вся настройка — через переменные окружения перед командой (все опциональны):
 #   OPENWRT_TOOL_MOUNT_POINT      точка монтирования USB (по умолчанию /mnt/usb1)
-#   OPENWRT_TOOL_FS_TYPE          ext4 | exfat | ntfs3 | vfat | f2fs (по умолчанию ext4)
+#   OPENWRT_TOOL_FS_TYPE          необязательно: ожидаемая ФС накопителя, только для проверки
+#                                 (ext4|exfat|ntfs3|vfat|f2fs) — драйвер скрипт всегда
+#                                 определяет автоматически по факту с самого раздела (blkid),
+#                                 несовпадение с этой переменной лишь выводит предупреждение
 #   OPENWRT_TOOL_SHARE_NAME       имя сетевой шары (по умолчанию share)
 #   OPENWRT_TOOL_WORKGROUP        рабочая группа SMB (по умолчанию WORKGROUP)
 #   OPENWRT_TOOL_SMB_USER         логин для доступа к шаре (по умолчанию smbuser)
@@ -97,6 +100,10 @@ SMB_BACKEND_FILE="$SELF_DIR/.smb_backend"
 SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh"
 
 OPENWRT_TOOL_MOUNT_POINT="${OPENWRT_TOOL_MOUNT_POINT:-/mnt/usb1}"
+# Запоминаем, был ли OPENWRT_TOOL_FS_TYPE задан явно, ДО применения дефолта —
+# теперь это лишь сверочная проверка против реальной ФС раздела (см.
+# configure_fs_driver), а не то, что определяет устанавливаемый драйвер.
+OPENWRT_TOOL_FS_TYPE_EXPLICIT="${OPENWRT_TOOL_FS_TYPE:+yes}"
 OPENWRT_TOOL_FS_TYPE="${OPENWRT_TOOL_FS_TYPE:-ext4}"
 OPENWRT_TOOL_SHARE_NAME="${OPENWRT_TOOL_SHARE_NAME:-share}"
 OPENWRT_TOOL_WORKGROUP="${OPENWRT_TOOL_WORKGROUP:-WORKGROUP}"
@@ -337,6 +344,12 @@ setup_smb_backend() {
             uci set samba4.usbshare.name="$OPENWRT_TOOL_SHARE_NAME"
             uci set samba4.usbshare.path="$share_path"
             uci set samba4.usbshare.guest_ok="$GUEST_OK"
+            # Без явного read_only Samba по умолчанию поднимает шару в
+            # режиме "только чтение" (стандартное поведение smb.conf) —
+            # тогда любая запись падает с "Permission denied", даже если
+            # права на файловой системе полностью открыты (777). В ветке
+            # ksmbd эта опция задана явно — здесь её тоже нужно указывать.
+            uci set samba4.usbshare.read_only="no"
             uci set samba4.usbshare.create_mask="0700"
             uci set samba4.usbshare.dir_mask="0700"
             if [ "$GUEST_OK" = "no" ]; then
@@ -750,33 +763,14 @@ setup_exfat() {
     mount_opts="${mount_opts}${DOS_PERM_OPTS}"
 }
 
-do_setup() {
-    case "$OPENWRT_TOOL_FS_TYPE" in
-        ext4|exfat|ntfs3|vfat|f2fs) ;;
-        *) log "Недопустимый OPENWRT_TOOL_FS_TYPE='$OPENWRT_TOOL_FS_TYPE' (ext4|exfat|ntfs3|vfat|f2fs)"; exit 1 ;;
-    esac
-
-    # Спрашиваем backend сразу, до сетевых операций — чтобы не заставлять
-    # ждать перед вопросом, на который всё равно нужен ручной ответ.
-    backend="$(choose_smb_backend)"
-
-    wait_for_network
-
-    log "=== Обновление списков пакетов ==="
-    pkg_update
-
-    log "=== Установка пакетов для USB и файловых систем ==="
-    # kmod-usb-storage обязателен — без него накопитель в принципе не
-    # появится. kmod-usb3/kmod-usb-storage-uas нужны только на роутерах с
-    # USB 3.0/UAS — на части таргетов (например, чисто USB 2.0 платформы)
-    # такого пакета вообще нет в индексе, и безусловная установка уронила бы
-    # весь скрипт под "set -e". Ставим их, только если они есть в индексе.
-    pkg_install kmod-usb-storage block-mount e2fsprogs fdisk
-    pkg_available kmod-usb3 && pkg_install kmod-usb3
-    pkg_available kmod-usb-storage-uas && pkg_install kmod-usb-storage-uas
-
+# Устанавливает модуль ядра/утилиты под файловую систему $1 (значение TYPE,
+# как его возвращает blkid: ext4/exfat/ntfs/vfat/f2fs) и выставляет
+# mount_fstype/mount_opts. Общая логика для do_setup() и do_swap_disk() —
+# драйвер всегда подбирается по фактической ФС на разделе, а не по
+# предположению из переменной окружения (см. OPENWRT_TOOL_FS_TYPE_EXPLICIT).
+configure_fs_driver() {
     mount_opts=""
-    case "$OPENWRT_TOOL_FS_TYPE" in
+    case "$1" in
         ext4)
             pkg_install kmod-fs-ext4
             mount_fstype="ext4"
@@ -784,7 +778,7 @@ do_setup() {
         exfat)
             setup_exfat
             ;;
-        ntfs3)
+        ntfs)
             # Драйвер ntfs3 в ядре требует Linux 5.15+ (OpenWrt 23.05+). На
             # более старых прошивках пакета kmod-fs-ntfs3 просто нет —
             # откатываемся на ntfs-3g (FUSE): работает на чтение/запись
@@ -828,14 +822,64 @@ do_setup() {
             pkg_available f2fs-tools && pkg_install f2fs-tools
             mount_fstype="f2fs"
             ;;
+        *)
+            log "Неизвестная/неподдерживаемая файловая система: ${1:-<пусто>}."
+            log "Отформатируйте накопитель в ext4, exFAT или NTFS и повторите."
+            exit 1
+            ;;
     esac
+}
+
+do_setup() {
+    if [ "$OPENWRT_TOOL_FS_TYPE_EXPLICIT" = "yes" ]; then
+        case "$OPENWRT_TOOL_FS_TYPE" in
+            ext4|exfat|ntfs3|vfat|f2fs) ;;
+            *) log "Недопустимый OPENWRT_TOOL_FS_TYPE='$OPENWRT_TOOL_FS_TYPE' (ext4|exfat|ntfs3|vfat|f2fs)"; exit 1 ;;
+        esac
+    fi
+
+    # Спрашиваем backend сразу, до сетевых операций — чтобы не заставлять
+    # ждать перед вопросом, на который всё равно нужен ручной ответ.
+    backend="$(choose_smb_backend)"
+
+    wait_for_network
+
+    log "=== Обновление списков пакетов ==="
+    pkg_update
+
+    log "=== Установка пакетов для USB ==="
+    # kmod-usb-storage обязателен — без него накопитель в принципе не
+    # появится. kmod-usb3/kmod-usb-storage-uas нужны только на роутерах с
+    # USB 3.0/UAS — на части таргетов (например, чисто USB 2.0 платформы)
+    # такого пакета вообще нет в индексе, и безусловная установка уронила бы
+    # весь скрипт под "set -e". Ставим их, только если они есть в индексе.
+    pkg_install kmod-usb-storage block-mount e2fsprogs fdisk
+    pkg_available kmod-usb3 && pkg_install kmod-usb3
+    pkg_available kmod-usb-storage-uas && pkg_install kmod-usb-storage-uas
 
     log "=== Установка SMB-сервера ($backend) ==="
     setup_smb_backend "$backend" "$OPENWRT_TOOL_MOUNT_POINT"
 
     log "=== Поиск подключённого USB-накопителя ==="
     find_usb_partition
-    log "Выбран раздел $USB_DEV (UUID=$USB_UUID)"
+    log "Выбран раздел $USB_DEV (UUID=$USB_UUID, файловая система: ${USB_DEVTYPE:-неизвестна})"
+
+    if [ -z "$USB_DEVTYPE" ]; then
+        log "Не удалось определить файловую систему выбранного раздела (пустой TYPE от blkid) — накопитель, похоже, не размечен."
+        log "Отформатируйте его в ext4 (рекомендуется), exFAT, NTFS, FAT32 или f2fs и повторите."
+        exit 1
+    fi
+
+    if [ "$OPENWRT_TOOL_FS_TYPE_EXPLICIT" = "yes" ]; then
+        expected_devtype="$OPENWRT_TOOL_FS_TYPE"
+        [ "$expected_devtype" = "ntfs3" ] && expected_devtype="ntfs"
+        if [ "$expected_devtype" != "$USB_DEVTYPE" ]; then
+            log "ВНИМАНИЕ: OPENWRT_TOOL_FS_TYPE=$OPENWRT_TOOL_FS_TYPE, но накопитель реально отформатирован в '$USB_DEVTYPE' — ставлю драйвер под фактическую ФС, а не под заданную."
+        fi
+    fi
+
+    log "=== Установка модуля под обнаруженную файловую систему ($USB_DEVTYPE) ==="
+    configure_fs_driver "$USB_DEVTYPE"
 
     mkdir -p "$OPENWRT_TOOL_MOUNT_POINT"
 
@@ -849,6 +893,15 @@ do_setup() {
     uci set fstab.usbmount.enabled="1"
     uci commit fstab
     block mount
+    sleep 1
+
+    # block-mount может молча ничего не смонтировать (например, если ядро не
+    # регистрирует нужную ФС — см. комментарий у setup_exfat) — без этой
+    # проверки скрипт печатал бы "Готово!" даже когда шара фактически пуста.
+    if ! grep -qs " ${OPENWRT_TOOL_MOUNT_POINT} " /proc/mounts; then
+        log "Не удалось смонтировать $OPENWRT_TOOL_MOUNT_POINT (драйвер: $mount_fstype). Проверьте 'logread' и 'dmesg' на роутере."
+        exit 1
+    fi
 
     # ext4/f2fs — обычные Linux-файловые системы: в отличие от FAT-семейства
     # (см. DOS_PERM_OPTS выше), права на них реальные, хранятся на диске, и
@@ -948,49 +1001,7 @@ do_swap_disk() {
     log "Выбран раздел $USB_DEV (UUID=$USB_UUID, файловая система: ${USB_DEVTYPE:-неизвестна})"
 
     log "Проверяю/ставлю модуль под файловую систему накопителя"
-    mount_opts=""
-    case "$USB_DEVTYPE" in
-        ext4)
-            pkg_install kmod-fs-ext4 >/dev/null
-            mount_fstype="ext4"
-            ;;
-        vfat)
-            pkg_install kmod-fs-vfat kmod-nls-cp437 kmod-nls-iso8859-1 >/dev/null
-            mount_fstype="vfat"
-            mount_opts="$DOS_PERM_OPTS"
-            ;;
-        exfat)
-            setup_exfat
-            ;;
-        ntfs)
-            if pkg_available kmod-fs-ntfs3; then
-                # См. подробный комментарий про iocharset в do_setup() —
-                # без него имена файлов не в ASCII (кириллица и т.п.) не
-                # отображаются и не открываются по SMB.
-                pkg_install kmod-fs-ntfs3 kmod-nls-utf8 >/dev/null
-                mount_fstype="ntfs3"
-                mount_opts=",iocharset=utf8${DOS_PERM_OPTS}"
-            else
-                log "kmod-fs-ntfs3 недоступен, ставлю ntfs-3g (FUSE, медленнее)"
-                pkg_install kmod-fuse ntfs-3g >/dev/null
-                mount_fstype="ntfs-3g"
-                mount_opts="$DOS_PERM_OPTS"
-            fi
-            ;;
-        f2fs)
-            if ! pkg_available kmod-fs-f2fs; then
-                log "kmod-fs-f2fs недоступен в этой прошивке."
-                exit 1
-            fi
-            pkg_install kmod-fs-f2fs >/dev/null
-            mount_fstype="f2fs"
-            ;;
-        *)
-            log "Неизвестная/неподдерживаемая файловая система: ${USB_DEVTYPE:-<пусто>}."
-            log "Отформатируйте накопитель в ext4, exFAT или NTFS и повторите."
-            exit 1
-            ;;
-    esac
+    configure_fs_driver "$USB_DEVTYPE"
 
     log "Переключаю точку монтирования на новый накопитель"
     uci set fstab.usbmount.uuid="$USB_UUID"
