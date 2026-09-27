@@ -2,13 +2,21 @@
 # Кнопка WPS на Cudy WR3000U совмещает две функции по длительности нажатия
 # (вместо запуска настоящего WPS-подключения):
 #
-#   - короткое нажатие (< 5 сек, ACTION=released, SEEN<5) — переключает
-#     Wi-Fi целиком (оба диапазона разом) и синхронно зажигает/гасит два
-#     диапазонных LED панели (2.4 ГГц/5 ГГц);
+#   - короткое нажатие (< 5 сек, ACTION=released, SEEN<5) — в зависимости
+#     от ACTION_MODE (задаётся при установке, см. install-wps-button.sh):
+#       ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi целиком (оба
+#         диапазона разом) и синхронно зажигает/гасит два диапазонных LED
+#         панели (2.4 ГГц/5 ГГц);
+#       ACTION_MODE=wan — блокирует/разблокирует форвардинг LAN->WAN
+#         файрволом, оставляя Wi-Fi/LAN/USB-шару доступными (приватное
+#         использование SMB-шары без выхода в интернет), индикация через
+#         red:fault (штатно означает "Internet offline" — семантически
+#         подходит);
 #   - долгое нажатие (>= 5 сек, SEEN>=5) — безопасно монтирует/размонтирует
 #     USB-накопитель, подключённый к роутеру (WR3000U аппаратно имеет
 #     USB-порт — xhci/usb_phy включены в device tree, mt7981b-cudy-wbr3000uax-v1.dtsi),
 #     чтобы не заходить по SSH ради размонтирования перед извлечением флешки.
+#     Не зависит от ACTION_MODE — работает всегда.
 #
 # GPIO-кнопка "wps" в device tree Cudy WR3000U (mt7981b-cudy-wr3000-nand.dtsi)
 # объявлена с linux,code = KEY_WPS_BUTTON. Модуль ядра button-hotplug
@@ -22,7 +30,7 @@
 # jiffies", "(seen - priv->seen[btn]) / HZ"), поэтому отдельно обрабатывать
 # ACTION=pressed/timeout не нужно — вся логика по факту отпускания.
 #
-# === Короткое нажатие: Wi-Fi ===
+# === Короткое нажатие: Wi-Fi (ACTION_MODE=wifi, по умолчанию) ===
 #
 # У кнопки WPS, в отличие от флажка "mode" на Cudy TR3000, нет двух
 # устойчивых положений — только "нажата"/"отпущена". Поэтому желаемое
@@ -40,9 +48,26 @@
 # то, что физически на панели диапазонные индикаторы могут восприниматься
 # как красные, в системе они зарегистрированы именно под этими именами
 # (совпадает с upstream device tree, mt7981b-cudy-wbr3000uax-v1.dtsi).
-# Отдельно существуют red:wps (сама кнопка) и red:fault — этот скрипт их
-# не трогает. Если на вашей прошивке имена отличаются — проверьте
-# "ls /sys/class/leds/" и переопределите (см. install-wps-button.sh).
+# Если на вашей прошивке имена отличаются — проверьте "ls /sys/class/leds/"
+# и переопределите (см. install-wps-button.sh).
+#
+# === Короткое нажатие: блокировка WAN (ACTION_MODE=wan) ===
+#
+# Альтернатива Wi-Fi-переключателю: короткое нажатие блокирует/снимает
+# блокировку форвардинга LAN->WAN файрволом (см. подробное объяснение того
+# же механизма в mode-button-wifi-toggle.sh на Cudy TR3000). Wi-Fi, LAN и
+# USB-шара продолжают работать — удобно приватно попользоваться SMB-шарой
+# через недоверенную сеть без выхода в интернет. Желаемое состояние также
+# вычисляется инверсией текущего (по наличию хотя бы одного включённого
+# forwarding-правила в зону wan).
+#
+# Индикация — светодиод red:fault. Штатно эта секция system.led_internet_off
+# управляется системой автоматически по факту реальной связи с интернетом;
+# в режиме ACTION_MODE=wan скрипт временно берёт её под ручное управление
+# (trigger=none) на время, пока блокировка активна — семантически LED и
+# означает именно "интернета нет", так что подмена смысла минимальна. В
+# режиме ACTION_MODE=wifi этот LED не трогается вообще, автоматика работает
+# как обычно.
 #
 # === Долгое нажатие: USB-накопитель ===
 #
@@ -92,6 +117,9 @@
 
 LED_2G_DIR="/sys/class/leds/blue:wlan-2ghz"
 LED_5G_DIR="/sys/class/leds/blue:wlan-5ghz"
+LED_FAULT_DIR="/sys/class/leds/red:fault"
+
+ACTION_MODE="${ACTION_MODE:-wifi}"
 
 USB_LONG_PRESS_SECONDS=5
 USB_INSTALL_SH="/root/openwrt-tool/usb-smb-share.sh"
@@ -131,6 +159,75 @@ handle_usb_toggle() {
 
 if [ "${SEEN:-0}" -ge "$USB_LONG_PRESS_SECONDS" ] 2>/dev/null; then
     handle_usb_toggle
+    exit 0
+fi
+
+# Блокируем/разблокируем ВСЕ секции "forwarding" в /etc/config/firewall,
+# ведущие в зону wan (dest='wan') — независимо от исходной зоны (lan,
+# guest и т.п.). LAN-only трафик (в т.ч. SMB-шара) идёт по input/forward
+# внутри зоны lan и этим правилом не затрагивается.
+fw_check_any_enabled() {
+    dest="$(uci -q get firewall."$1".dest)"
+    [ "$dest" = "wan" ] || return 0
+    val="$(uci -q get firewall."$1".enabled)"
+    [ -z "$val" ] && val=1
+    [ "$val" = "1" ] && any_fw_enabled=1
+}
+
+fw_set_enabled() {
+    dest="$(uci -q get firewall."$1".dest)"
+    [ "$dest" = "wan" ] || return 0
+    uci set firewall."$1".enabled="$new_fw_enabled"
+}
+
+fw_reload() {
+    if command -v fw4 >/dev/null 2>&1; then
+        fw4 reload
+    else
+        /etc/init.d/firewall reload
+    fi
+}
+
+led_fault_on() {
+    [ -e "${LED_FAULT_DIR}/trigger" ] && echo none > "${LED_FAULT_DIR}/trigger" 2>/dev/null
+    if [ -e "${LED_FAULT_DIR}/max_brightness" ]; then
+        cat "${LED_FAULT_DIR}/max_brightness" > "${LED_FAULT_DIR}/brightness" 2>/dev/null
+    else
+        echo 1 > "${LED_FAULT_DIR}/brightness" 2>/dev/null
+    fi
+}
+
+led_fault_off() {
+    echo 0 > "${LED_FAULT_DIR}/brightness" 2>/dev/null
+}
+
+handle_wan_toggle() {
+    config_load firewall
+
+    any_fw_enabled=0
+    config_foreach fw_check_any_enabled forwarding
+
+    if [ "$any_fw_enabled" = "1" ]; then
+        new_fw_enabled=0
+    else
+        new_fw_enabled=1
+    fi
+
+    config_foreach fw_set_enabled forwarding
+    uci commit firewall
+    fw_reload
+
+    if [ "$new_fw_enabled" = "0" ]; then
+        led_fault_on
+        logger -t rc.button.wps "wps короткое нажатие (wan): форвардинг LAN->WAN заблокирован"
+    else
+        led_fault_off
+        logger -t rc.button.wps "wps короткое нажатие (wan): форвардинг LAN->WAN разблокирован"
+    fi
+}
+
+if [ "$ACTION_MODE" = "wan" ]; then
+    handle_wan_toggle
     exit 0
 fi
 

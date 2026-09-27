@@ -1,6 +1,16 @@
 #!/bin/sh
-# Переключение Wi-Fi (все wifi-device из /etc/config/wireless) флажком "mode"
-# на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic).
+# Флажок "mode" на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic)
+# управляет одной из двух взаимоисключающих функций — выбирается переменной
+# ACTION_MODE (задаётся при установке, см. install-mode-button.sh):
+#
+#   ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi (все wifi-device из
+#     /etc/config/wireless), как и раньше.
+#   ACTION_MODE=wan — блокирует форвардинг LAN->WAN файрволом. Wi-Fi, LAN и
+#     USB-шара (usb-smb-share.sh) продолжают работать как обычно, наружу в
+#     интернет трафик не идёт. Сценарий: приватно попользоваться SMB-шарой
+#     через недоверенную сеть, не открывая маршрут наружу. Интерфейс WAN не
+#     трогаем (ifdown/ifup) — так модемная/PPPoE-сессия не рвётся, включение
+#     обратно происходит мгновенно, без переподключения.
 #
 # GPIO-метка этого переключателя в device tree — "mode" (видно в
 # /sys/kernel/debug/gpio), но модуль ядра gpio_button_hotplug строит
@@ -11,21 +21,21 @@
 #
 # Переключатель имеет два фиксированных положения, и именно положение
 # (а не факт срабатывания) определяет желаемое состояние сети:
-#   pressed  -> Wi-Fi должен быть включён  (disabled=0)
-#   released -> Wi-Fi должен быть выключен (disabled=1)
-# Если сеть уже находится в нужном состоянии, uci/wifi не трогаем —
-# это защищает от лишних перезапусков при повторных/дребезжащих событиях.
+#   pressed  -> обычный режим (Wi-Fi включён      / WAN разрешён)
+#   released -> защитный режим (Wi-Fi выключен    / WAN заблокирован)
+# Если сеть уже находится в нужном состоянии, uci не трогаем — это защищает
+# от лишних перезапусков при повторных/дребезжащих событиях.
 #
-# Пока Wi-Fi выключен, горит красный светодиод (red:power). Штатный
+# Пока активен защитный режим, горит красный светодиод (red:power). Штатный
 # белый светодиод (white:status) на этой прошивке горит статически —
 # у него нет автотриггера, завязанного на радио (trigger=none,
 # brightness всегда 1), поэтому сам по себе он не гаснет и перекрывает
 # собой красный. Скрипт гасит его вручную, когда включает красный, и
-# возвращает brightness=1 обратно, когда Wi-Fi снова включён.
+# возвращает brightness=1 обратно, когда защитный режим снят.
 #
 # Установка на роутере — самый простой способ, одной строкой (см. также
-# install-mode-button.sh в этом репозитории для деталей и переопределения
-# имён LED через переменные окружения):
+# install-mode-button.sh в этом репозитории для деталей, выбора ACTION_MODE
+# и переопределения имён LED через переменные окружения):
 #
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
@@ -40,12 +50,14 @@
 LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
 
+ACTION_MODE="${ACTION_MODE:-wifi}"
+
 case "${ACTION}" in
 pressed)
-    rfkill_state=0
+    blocked=0
     ;;
 released)
-    rfkill_state=1
+    blocked=1
     ;;
 *)
     exit 0
@@ -60,11 +72,70 @@ esac
 wifi_check_state() {
     val="$(uci -q get wireless."$1".disabled)"
     [ -z "$val" ] && val=0
-    [ "$val" != "$rfkill_state" ] && need_update=1
+    [ "$val" != "$blocked" ] && need_update=1
 }
 
 wifi_rfkill_set() {
-    uci set wireless."$1".disabled="$rfkill_state"
+    uci set wireless."$1".disabled="$blocked"
+}
+
+apply_wifi_mode() {
+    config_load wireless
+    need_update=0
+    config_foreach wifi_check_state wifi-device
+
+    if [ "$need_update" = "0" ]; then
+        logger -t rc.button.mode "mode switch ${ACTION} (wifi): уже disabled=${blocked} на всех секциях, пропускаю"
+    else
+        logger -t rc.button.mode "mode switch ${ACTION} (wifi): wireless disabled=${blocked}"
+        config_foreach wifi_rfkill_set wifi-device
+        uci commit wireless
+        wifi up
+    fi
+}
+
+# Блокируем/разблокируем ВСЕ секции "forwarding" в /etc/config/firewall,
+# ведущие в зону wan (dest='wan') — независимо от исходной зоны (lan,
+# guest и т.п.), чтобы защитный режим перекрывал интернет для всех, а не
+# только для основной LAN. LAN-only трафик (в т.ч. SMB-шара) идёт по
+# input/forward внутри зоны lan и этим правилом не затрагивается.
+fw_check_state() {
+    dest="$(uci -q get firewall."$1".dest)"
+    [ "$dest" = "wan" ] || return 0
+    val="$(uci -q get firewall."$1".enabled)"
+    [ -z "$val" ] && val=1
+    want=$((1 - blocked))
+    [ "$val" != "$want" ] && need_update=1
+}
+
+fw_set_state() {
+    dest="$(uci -q get firewall."$1".dest)"
+    [ "$dest" = "wan" ] || return 0
+    want=$((1 - blocked))
+    uci set firewall."$1".enabled="$want"
+}
+
+fw_reload() {
+    if command -v fw4 >/dev/null 2>&1; then
+        fw4 reload
+    else
+        /etc/init.d/firewall reload
+    fi
+}
+
+apply_wan_mode() {
+    config_load firewall
+    need_update=0
+    config_foreach fw_check_state forwarding
+
+    if [ "$need_update" = "0" ]; then
+        logger -t rc.button.mode "mode switch ${ACTION} (wan): форвардинг LAN->WAN уже в нужном состоянии, пропускаю"
+    else
+        logger -t rc.button.mode "mode switch ${ACTION} (wan): форвардинг LAN->WAN $([ "$blocked" = "1" ] && echo заблокирован || echo разблокирован)"
+        config_foreach fw_set_state forwarding
+        uci commit firewall
+        fw_reload
+    fi
 }
 
 led_red_on() {
@@ -82,20 +153,16 @@ led_red_off() {
     echo 1 > "${LED_WHITE_DIR}/brightness" 2>/dev/null
 }
 
-config_load wireless
-need_update=0
-config_foreach wifi_check_state wifi-device
+case "$ACTION_MODE" in
+wan)
+    apply_wan_mode
+    ;;
+*)
+    apply_wifi_mode
+    ;;
+esac
 
-if [ "$need_update" = "0" ]; then
-    logger -t rc.button.mode "mode switch ${ACTION}: уже disabled=${rfkill_state} на всех секциях, пропускаю"
-else
-    logger -t rc.button.mode "mode switch ${ACTION}: wireless disabled=${rfkill_state}"
-    config_foreach wifi_rfkill_set wifi-device
-    uci commit wireless
-    wifi up
-fi
-
-if [ "$rfkill_state" = "1" ]; then
+if [ "$blocked" = "1" ]; then
     led_red_on
 else
     led_red_off

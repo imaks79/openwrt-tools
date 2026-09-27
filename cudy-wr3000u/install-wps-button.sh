@@ -2,13 +2,23 @@
 # ==============================================================================
 # Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения совмещает две
 # функции по длительности нажатия:
-#   - короткое (< 5 сек) — Wi-Fi вкл/выкл (оба диапазона разом) + два
-#     диапазонных LED на панели (2.4 ГГц / 5 ГГц);
+#   - короткое (< 5 сек) — в зависимости от ACTION_MODE:
+#       ACTION_MODE=wifi (по умолчанию) — Wi-Fi вкл/выкл (оба диапазона
+#         разом) + два диапазонных LED на панели (2.4 ГГц / 5 ГГц);
+#       ACTION_MODE=wan — блокирует/разблокирует форвардинг LAN->WAN
+#         файрволом (Wi-Fi/LAN/USB-шара остаются доступны — приватное
+#         использование SMB-шары без выхода в интернет), индикация через
+#         red:fault.
 #   - долгое (>= 5 сек)  — безопасно монтирует/размонтирует USB-накопитель
-#     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh).
+#     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh);
+#     не зависит от ACTION_MODE.
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
+#
+# Выбор режима блокировки WAN вместо Wi-Fi для короткого нажатия:
+#   ACTION_MODE=wan \
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
 # Скачивает wps-button-wifi-toggle.sh из этого репозитория и кладёт его в
 # /etc/rc.button/wps — так называется хук, который procd вызывает на
@@ -48,6 +58,10 @@ mkdir -p "$(dirname "$TARGET")"
 wget -O "$TARGET" "$SCRIPT_URL"
 chmod +x "$TARGET"
 
+if [ -n "$ACTION_MODE" ]; then
+    sed -i "s#ACTION_MODE:-wifi}#ACTION_MODE:-$ACTION_MODE}#" "$TARGET"
+    echo "ACTION_MODE переопределён на $ACTION_MODE (по умолчанию в установленном файле)"
+fi
 if [ -n "$LED_2G_DIR" ]; then
     sed -i "s#^LED_2G_DIR=.*#LED_2G_DIR=\"$LED_2G_DIR\"#" "$TARGET"
     echo "LED_2G_DIR переопределён на $LED_2G_DIR"
@@ -55,6 +69,10 @@ fi
 if [ -n "$LED_5G_DIR" ]; then
     sed -i "s#^LED_5G_DIR=.*#LED_5G_DIR=\"$LED_5G_DIR\"#" "$TARGET"
     echo "LED_5G_DIR переопределён на $LED_5G_DIR"
+fi
+if [ -n "$LED_FAULT_DIR" ]; then
+    sed -i "s#^LED_FAULT_DIR=.*#LED_FAULT_DIR=\"$LED_FAULT_DIR\"#" "$TARGET"
+    echo "LED_FAULT_DIR переопределён на $LED_FAULT_DIR"
 fi
 
 # /etc/rc.button/wps — обычный файл, а не UCI-конфиг, поэтому по умолчанию
@@ -72,9 +90,12 @@ echo
 echo "Список реальных имён LED на этом роутере (сверьте с LED_2G_DIR/LED_5G_DIR внутри $TARGET):"
 ls /sys/class/leds/ 2>/dev/null || echo "(/sys/class/leds/ недоступен)"
 echo
-echo "Проверка без физической кнопки:"
-echo "  короткое нажатие (Wi-Fi):        SEEN=0 ACTION=released BUTTON=wps $TARGET"
+echo "Проверка без физической кнопки (текущий режим ACTION_MODE):"
+echo "  короткое нажатие:                SEEN=0 ACTION=released BUTTON=wps $TARGET"
 echo "  долгое нажатие (USB, 5+ сек):    SEEN=5 ACTION=released BUTTON=wps $TARGET"
+echo
+echo "Проверка режима wan вручную, без переустановки:"
+echo "  ACTION_MODE=wan SEEN=0 ACTION=released BUTTON=wps $TARGET"
 echo
 echo "Долгое нажатие требует уже настроенной USB-шары:"
 echo "  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh"

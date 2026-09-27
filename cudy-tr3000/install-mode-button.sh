@@ -1,10 +1,20 @@
 #!/bin/sh
 # ==============================================================================
-# Cudy TR3000 — переключатель "mode" управляет Wi-Fi, красный LED вместо
-# белого статусного, пока Wi-Fi выключен.
+# Cudy TR3000 — переключатель "mode" управляет одной из двух функций (выбор
+# через ACTION_MODE при установке), красный LED вместо белого статусного,
+# пока активен защитный режим:
+#
+#   ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi.
+#   ACTION_MODE=wan  — блокирует форвардинг LAN->WAN файрволом, Wi-Fi/LAN/
+#                       USB-шара остаются доступны (приватное использование
+#                       SMB-шары без выхода в интернет).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
+#
+# Выбор режима блокировки WAN вместо Wi-Fi:
+#   ACTION_MODE=wan \
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # Скачивает mode-button-wifi-toggle.sh из этого репозитория и кладёт его в
 # /etc/rc.button/BTN_0 — так называется хук, который procd вызывает на
@@ -13,9 +23,10 @@
 # подробности в комментариях самого файла).
 #
 # Положение переключателя однозначно определяет желаемое состояние сети
-# (pressed -> Wi-Fi включён, released -> выключен), команда не повторяется,
-# если сеть уже в нужном состоянии, а пока Wi-Fi выключен — вместо белого
-# статусного светодиода (white:status) горит красный (red:power).
+# (pressed -> обычный режим, released -> защитный режим), команда не
+# повторяется, если сеть уже в нужном состоянии, а пока активен защитный
+# режим — вместо белого статусного светодиода (white:status) горит красный
+# (red:power).
 #
 # ВАЖНО: имена светодиодов red:power / white:status подобраны и проверены
 # на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic). На другой
@@ -26,8 +37,10 @@
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi (а не по кабелю/LAN) —
-# переключение флажка в положение "выключено" оборвёт вашу же SSH-сессию
-# вместе с Wi-Fi. Тестируйте и устанавливайте по кабелю.
+# переключение флажка в положение "выключено" в режиме ACTION_MODE=wifi
+# оборвёт вашу же SSH-сессию вместе с Wi-Fi (в режиме ACTION_MODE=wan
+# Wi-Fi не трогается, но если вы зашли через WAN — потеряете доступ, пока
+# не переключите флажок обратно). Тестируйте и устанавливайте по кабелю.
 # ==============================================================================
 
 set -e
@@ -41,6 +54,10 @@ mkdir -p "$(dirname "$TARGET")"
 wget -O "$TARGET" "$SCRIPT_URL"
 chmod +x "$TARGET"
 
+if [ -n "$ACTION_MODE" ]; then
+    sed -i "s#ACTION_MODE:-wifi}#ACTION_MODE:-$ACTION_MODE}#" "$TARGET"
+    echo "ACTION_MODE переопределён на $ACTION_MODE (по умолчанию в установленном файле)"
+fi
 if [ -n "$LED_RED_DIR" ]; then
     sed -i "s#^LED_RED_DIR=.*#LED_RED_DIR=\"$LED_RED_DIR\"#" "$TARGET"
     echo "LED_RED_DIR переопределён на $LED_RED_DIR"
@@ -64,6 +81,10 @@ fi
 
 echo "Готово: $TARGET установлен."
 echo
-echo "Проверка без физической кнопки (эмуляция события):"
+echo "Проверка без физической кнопки (эмуляция события, текущий режим ACTION_MODE):"
 echo "  ACTION=released BUTTON=BTN_0 $TARGET"
 echo "  ACTION=pressed  BUTTON=BTN_0 $TARGET"
+echo
+echo "Проверка режима wan вручную, без переустановки:"
+echo "  ACTION_MODE=wan ACTION=released BUTTON=BTN_0 $TARGET"
+echo "  ACTION_MODE=wan ACTION=pressed  BUTTON=BTN_0 $TARGET"
