@@ -14,6 +14,10 @@
     файрволом, оставляя Wi-Fi/LAN/USB-шару доступными (приватное
     использование SMB-шары без выхода в интернет), индикация через
     `red:fault`;
+  - `ACTION_MODE=netbird` — включает/выключает подключение
+    [netbird](https://netbird.io/) (`netbird up`/`netbird down`),
+    индикация через оба диапазонных LED разом. Требует уже установленного
+    и настроенного netbird;
 - **долгое (≥ 5 сек)** — безопасно монтирует/размонтирует USB-накопитель,
   чтобы не заходить по SSH ради размонтирования перед извлечением флешки
   (не зависит от `ACTION_MODE` — работает всегда). WR3000U аппаратно
@@ -35,6 +39,13 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr30
 
 ```sh
 ACTION_MODE=wan \
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
+```
+
+Чтобы короткое нажатие включало/выключало netbird вместо Wi-Fi:
+
+```sh
+ACTION_MODE=netbird \
   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
@@ -66,7 +77,9 @@ blue:power       blue:wan-online  blue:wlan-5ghz   mt76-phy1        red:wps
 тоже не трогается (штатно управляется системой автоматически как
 индикатор "Internet offline"), но в режиме `ACTION_MODE=wan` скрипт
 временно берёт его под ручное управление, чтобы показывать блокировку
-WAN.
+WAN. В режиме `ACTION_MODE=netbird` сам Wi-Fi этой кнопкой не
+переключается, поэтому диапазонные LED (`blue:wlan-2ghz`/`blue:wlan-5ghz`)
+свободны и переиспользуются для индикации состояния netbird.
 
 Если на вашей прошивке/ревизии платы вывод `ls /sys/class/leds/`
 отличается, переопределите имена перед установкой:
@@ -153,6 +166,21 @@ guest и т.п.). Wi-Fi, LAN и USB-шара продолжают работат
 он не распаян физически (см. предупреждение в разделе про LED выше) —
 если LED не загорается, проверяйте результат через `logread`.
 
+### Короткое нажатие — netbird (`ACTION_MODE=netbird`)
+
+Включает/выключает подключение [netbird](https://netbird.io/) командами
+`netbird up`/`netbird down` (демон/сервис не трогаем — предполагается,
+что уже запущен и залогинен через `netbird login --setup-key <KEY>`).
+Желаемое состояние вычисляется инверсией текущего — по первой строке
+`netbird status` (`Daemon status: Connected` при установленном
+соединении). Если бинарь `netbird` не найден в `PATH` — логируется
+предупреждение через `logger` и ничего не делается.
+
+Индикация — оба диапазонных LED (`blue:wlan-2ghz`/`blue:wlan-5ghz`) разом:
+горят, пока netbird отключён, гаснут при подключении. В этом режиме сам
+Wi-Fi кнопкой не переключается, поэтому реальное состояние радио они
+больше не отражают.
+
 ### Долгое нажатие (5+ сек) — USB-накопитель
 
 Требует, чтобы шара уже была настроена
@@ -202,6 +230,13 @@ SEEN=0 ACTION=released BUTTON=wps /etc/rc.button/wps
 
 ```sh
 ACTION_MODE=wan SEEN=0 ACTION=released BUTTON=wps /etc/rc.button/wps
+```
+
+Короткое нажатие в режиме `netbird`, без переустановки скрипта (требует
+уже настроенного netbird):
+
+```sh
+ACTION_MODE=netbird SEEN=0 ACTION=released BUTTON=wps /etc/rc.button/wps
 ```
 
 Долгое нажатие (USB, требует уже настроенной шары) — запустите дважды

@@ -12,6 +12,10 @@
 #         использование SMB-шары без выхода в интернет), индикация через
 #         red:fault (штатно означает "Internet offline" — семантически
 #         подходит);
+#       ACTION_MODE=netbird — включает/выключает подключение netbird
+#         (netbird up/down), индикация через два диапазонных LED разом
+#         (те же, что заняты в режиме wifi — свободны, пока выбран этот
+#         режим). Требует уже установленного и настроенного netbird.
 #   - долгое нажатие (>= 5 сек, SEEN>=5) — безопасно монтирует/размонтирует
 #     USB-накопитель, подключённый к роутеру (WR3000U аппаратно имеет
 #     USB-порт — xhci/usb_phy включены в device tree, mt7981b-cudy-wbr3000uax-v1.dtsi),
@@ -76,6 +80,23 @@
 # работает штатно, просто без светового сигнала — проверяйте logread
 # (тег rc.button.wps), если LED не загорается.
 #
+# === Короткое нажатие: netbird (ACTION_MODE=netbird) ===
+#
+# Включает/выключает подключение netbird командами "netbird up"/"netbird
+# down" (демон/сервис не трогаем — предполагается, что уже запущен и
+# залогинен через "netbird login --setup-key <KEY>"). Желаемое состояние
+# вычисляется инверсией текущего — по первой строке "netbird status"
+# ("Daemon status: Connected" при установленном соединении; специально
+# ищем это слово с большой буквы — у "Disconnected" эта подстрока не
+# встречается, дальше идёт строчная "c", так что пересечения не будет).
+# Если бинарь "netbird" не найден в PATH — логируется предупреждение и
+# ничего не делается (без ошибок).
+#
+# Индикация — оба диапазонных LED (blue:wlan-2ghz/5ghz) разом: горят, пока
+# netbird ОТКЛЮЧЁН, гаснут при подключении. В этом режиме сам Wi-Fi этой
+# кнопкой не переключается, поэтому LED свободны для другого смысла;
+# реальное состояние радио они больше не отражают.
+#
 # === Долгое нажатие: USB-накопитель ===
 #
 # Требует, чтобы сетевая USB-шара уже была настроена универсальным
@@ -127,6 +148,7 @@ LED_5G_DIR="/sys/class/leds/blue:wlan-5ghz"
 LED_FAULT_DIR="/sys/class/leds/red:fault"
 
 ACTION_MODE="${ACTION_MODE:-wifi}"
+NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 
 USB_LONG_PRESS_SECONDS=5
 USB_INSTALL_SH="/root/openwrt-tool/usb-smb-share.sh"
@@ -208,6 +230,25 @@ led_fault_off() {
     echo 0 > "${LED_FAULT_DIR}/brightness" 2>/dev/null
 }
 
+# По умолчанию в device tree у диапазонных LED trigger=phy0tpt/phy1tpt
+# (мигание по трафику), поэтому просто "brightness>0" недостаточно —
+# сначала явно отключаем trigger, иначе драйвер тут же перезапишет
+# brightness обратно.
+led_on() {
+    dir="$1"
+    [ -e "$dir/trigger" ] && echo none > "$dir/trigger" 2>/dev/null
+    if [ -e "$dir/max_brightness" ]; then
+        cat "$dir/max_brightness" > "$dir/brightness" 2>/dev/null
+    else
+        echo 1 > "$dir/brightness" 2>/dev/null
+    fi
+}
+
+led_off() {
+    dir="$1"
+    echo 0 > "$dir/brightness" 2>/dev/null
+}
+
 handle_wan_toggle() {
     config_load firewall
 
@@ -233,10 +274,50 @@ handle_wan_toggle() {
     fi
 }
 
-if [ "$ACTION_MODE" = "wan" ]; then
+# "Daemon status: Connected" — первая строка вывода "netbird status" при
+# установленном соединении (подтверждено официальной документацией
+# NetBird). Ищем именно "Connected" с большой буквы: у "Disconnected"
+# эта подстрока не встречается ("D-i-s-c..." — дальше строчная "c"), так
+# что пересечения не будет.
+netbird_is_connected() {
+    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
+}
+
+handle_netbird_toggle() {
+    if ! command -v "$NETBIRD_BIN" >/dev/null 2>&1; then
+        logger -t rc.button.wps "wps короткое нажатие (netbird): '$NETBIRD_BIN' не найден — сначала установите и настройте netbird (netbird login --setup-key ...), пропускаю"
+        return 0
+    fi
+
+    if netbird_is_connected; then
+        if out="$("$NETBIRD_BIN" down 2>&1)"; then
+            led_on "$LED_2G_DIR"
+            led_on "$LED_5G_DIR"
+            logger -t rc.button.wps "wps короткое нажатие (netbird): отключён (netbird down)"
+        else
+            logger -t rc.button.wps "wps короткое нажатие (netbird): netbird down завершился с ошибкой: $out"
+        fi
+    else
+        if out="$("$NETBIRD_BIN" up 2>&1)"; then
+            led_off "$LED_2G_DIR"
+            led_off "$LED_5G_DIR"
+            logger -t rc.button.wps "wps короткое нажатие (netbird): подключён (netbird up)"
+        else
+            logger -t rc.button.wps "wps короткое нажатие (netbird): netbird up завершился с ошибкой: $out"
+        fi
+    fi
+}
+
+case "$ACTION_MODE" in
+wan)
     handle_wan_toggle
     exit 0
-fi
+    ;;
+netbird)
+    handle_netbird_toggle
+    exit 0
+    ;;
+esac
 
 led_dir_for_band() {
     case "$1" in
@@ -244,24 +325,6 @@ led_dir_for_band() {
         5g) echo "$LED_5G_DIR" ;;
         *) echo "" ;;
     esac
-}
-
-# По умолчанию в device tree у этих LED trigger=phy0tpt/phy1tpt (мигание
-# по трафику), поэтому просто "brightness>0" недостаточно — сначала явно
-# отключаем trigger, иначе драйвер тут же перезапишет brightness обратно.
-led_on() {
-    dir="$1"
-    [ -e "$dir/trigger" ] && echo none > "$dir/trigger" 2>/dev/null
-    if [ -e "$dir/max_brightness" ]; then
-        cat "$dir/max_brightness" > "$dir/brightness" 2>/dev/null
-    else
-        echo 1 > "$dir/brightness" 2>/dev/null
-    fi
-}
-
-led_off() {
-    dir="$1"
-    echo 0 > "$dir/brightness" 2>/dev/null
 }
 
 # Сводное текущее состояние: включена ли хоть одна секция wifi-device.

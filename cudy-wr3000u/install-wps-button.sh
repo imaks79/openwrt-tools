@@ -9,6 +9,9 @@
 #         файрволом (Wi-Fi/LAN/USB-шара остаются доступны — приватное
 #         использование SMB-шары без выхода в интернет), индикация через
 #         red:fault.
+#       ACTION_MODE=netbird — включает/выключает подключение netbird
+#         (netbird up/down), индикация через оба диапазонных LED разом.
+#         Требует уже установленного и настроенного netbird.
 #   - долгое (>= 5 сек)  — безопасно монтирует/размонтирует USB-накопитель
 #     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh);
 #     не зависит от ACTION_MODE.
@@ -18,6 +21,10 @@
 #
 # Выбор режима блокировки WAN вместо Wi-Fi для короткого нажатия:
 #   ACTION_MODE=wan \
+#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
+#
+# Выбор режима netbird вместо Wi-Fi для короткого нажатия:
+#   ACTION_MODE=netbird \
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
 # Скачивает wps-button-wifi-toggle.sh из этого репозитория и кладёт его в
@@ -74,6 +81,10 @@ if [ -n "$LED_FAULT_DIR" ]; then
     sed -i "s#^LED_FAULT_DIR=.*#LED_FAULT_DIR=\"$LED_FAULT_DIR\"#" "$TARGET"
     echo "LED_FAULT_DIR переопределён на $LED_FAULT_DIR"
 fi
+if [ -n "$NETBIRD_BIN" ]; then
+    sed -i "s#^NETBIRD_BIN=.*#NETBIRD_BIN=\"$NETBIRD_BIN\"#" "$TARGET"
+    echo "NETBIRD_BIN переопределён на $NETBIRD_BIN"
+fi
 
 # /etc/rc.button/wps — обычный файл, а не UCI-конфиг, поэтому по умолчанию
 # НЕ переживает "sysupgrade" (без -n сохраняются только файлы, перечисленные
@@ -96,6 +107,9 @@ echo "  долгое нажатие (USB, 5+ сек):    SEEN=5 ACTION=released 
 echo
 echo "Проверка режима wan вручную, без переустановки:"
 echo "  ACTION_MODE=wan SEEN=0 ACTION=released BUTTON=wps $TARGET"
+echo
+echo "Проверка режима netbird вручную, без переустановки (требует настроенного netbird):"
+echo "  ACTION_MODE=netbird SEEN=0 ACTION=released BUTTON=wps $TARGET"
 echo
 echo "Долгое нажатие требует уже настроенной USB-шары:"
 echo "  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh"
