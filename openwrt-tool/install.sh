@@ -545,6 +545,10 @@ case "$STAGE" in
     # sh <(wget -O - https://raw.githubusercontent.com/Slava-Shchipunov/awg-openwrt/refs/heads/master/amneziawg-install.sh) -en \
     #   || log "ВНИМАНИЕ: установка скрипта AmneziaWG завершилась с ошибкой, продолжаю."
 
+    # log "Устаналиваю Forkop ..."
+    # yes | sh <(wget -O - https://raw.githubusercontent.com/ushan0v/forkop/main/install.sh) \
+    #   || log "ВНИМАНИЕ: установка скрипта Forkop завершилась с ошибкой, продолжаю"
+
     write_adguardhome_config
     # Конфиг AdGuard Home биндится на $ROUTER_LAN_IP — этот адрес появится на
     # интерфейсе LAN только после apply_network_settings (uci commit) и
