@@ -1,12 +1,25 @@
 #!/bin/sh
 # Cudy TR3000 — короткое нажатие reset (<1 сек, тот же порог, что раньше
-# использовался для reboot) переключает USB-накопитель без захода по SSH:
+# использовался для reboot) ВСЕГДА ведёт себя так же, как ручной запуск
+# "OPENWRT_TOOL_MODE=swap-disk sh usb-smb-share.sh" (универсальный скрипт из
+# ../openwrt-tool): безопасно размонтирует текущий накопитель (если он
+# смонтирован), затем до 60 секунд ищет физически подключённый USB-раздел и
+# монтирует его. Раньше поведение отличалось в зависимости от того, был ли
+# накопитель смонтирован (просто umount ИЛИ просто поиск нового) — из-за
+# этого смена накопителя требовала ДВУХ отдельных нажатий (сначала
+# отмонтировать старый, затем, вставив новый, нажать ещё раз). Теперь это
+# одно действие на одно короткое нажатие, полностью эквивалентное ручному
+# swap-disk по SSH.
 #
-#   - если накопитель уже смонтирован     -> безопасно размонтировать его;
-#   - если накопитель сейчас не смонтирован -> выполнить
-#     "OPENWRT_TOOL_MODE=swap-disk sh usb-smb-share.sh" (универсальный
-#     скрипт из ../openwrt-tool), чтобы подхватить только что подключённый
-#     новый накопитель.
+# Защита от повторного/прерванного нажатия: пока swap-disk уже выполняется
+# (в т.ч. на этапе до 60-секундного ожидания нового накопителя), повторное
+# короткое нажатие reset НЕ запускает второй параллельный процесс (это
+# могло бы гонять одновременные uci/mount/pkg-операции и оставить конфиг в
+# противоречивом состоянии) — оно просто игнорируется с сигналом ошибки.
+# Если предыдущий запуск был прерван (например, роутер перезагрузился или
+# процесс был убит) и оставил "осиротевший" лок — следующее нажатие сам
+# обнаруживает, что процесс с тем PID уже не выполняется, снимает старый
+# лок и продолжает как обычно, без необходимости заходить по SSH.
 #
 # Результат сигнализируется светодиодами:
 #   успех  -> белый (white:status) мигает 5 раз;
@@ -59,6 +72,11 @@ INSTALL_LOG="/root/openwrt-tool/reset-button-swap-disk.log"
 LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
 
+# /var на OpenWrt — tmpfs (обычно симлинк на /tmp), переживает процесс, но не
+# перезагрузку — ровно то, что нужно: после ребута "осиротевших" локов от
+# предыдущей загрузки уже не будет, разбираться с ними не придётся.
+LOCK_DIR="/var/run/reset-button-usb-toggle.lock.d"
+
 OVERLAY="$( grep ' /overlay ' /proc/mounts )"
 
 mount_point() {
@@ -66,6 +84,45 @@ mount_point() {
     [ -z "$mp" ] && mp="/mnt/usb1"
     echo "$mp"
 }
+
+# mkdir атомарен (в отличие от "проверить файл, потом записать" двумя
+# отдельными командами) — на нём и построена защита от гонки, если кто-то
+# умудрится нажать reset дважды практически одновременно.
+#
+# Если лок уже занят — проверяем, жив ли ещё процесс, который его держит
+# (kill -0). Если жив — значит swap-disk от предыдущего нажатия
+# действительно ещё выполняется (например, всё ещё ждёт накопитель в
+# find_usb_partition) — отказываем. Если процесса с таким PID больше нет —
+# это "осиротевший" лок от прерванного запуска (процесс убили, роутер
+# перезагрузился посреди ожидания и т.п.) — снимаем его сами и продолжаем,
+# без необходимости заходить по SSH и разбираться руками.
+acquire_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+
+    lock_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+    if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+        return 1
+    fi
+
+    logger -t rc.button.reset "reset: найден осиротевший лок (pid ${lock_pid:-?} уже не выполняется — предыдущий запуск, похоже, был прерван) — снимаю его и продолжаю"
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR" 2>/dev/null
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+}
+
+# Снимает лок, только если он всё ещё принадлежит ЭТОМУ процессу (а не был
+# успешно захвачен следующим — теоретически, но мало ли) и вызывается через
+# trap при любом завершении, в т.ч. по сигналу, чтобы не оставлять лок
+# висеть навечно после аварийного прерывания.
+release_lock() {
+    [ -f "$LOCK_DIR/pid" ] || return 0
+    [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR"
+}
+trap release_lock EXIT INT TERM
 
 led_get() { cat "${1}/brightness" 2>/dev/null || echo 0; }
 led_get_max() { cat "${1}/max_brightness" 2>/dev/null || echo 1; }
@@ -119,27 +176,27 @@ signal_failure() {
 }
 
 handle_usb_button() {
-    mp="$(mount_point)"
+    if ! acquire_lock; then
+        echo "USB SWAP DISK ALREADY RUNNING" > /dev/console
+        logger -t rc.button.reset "reset: swap-disk от предыдущего нажатия ещё выполняется (возможно, всё ещё ждёт накопитель — до 60 сек) — игнорирую повторное нажатие"
+        signal_failure
+        return 0
+    fi
 
+    mp="$(mount_point)"
     if grep -qs " ${mp} " /proc/mounts; then
-        echo "USB UNMOUNT" > /dev/console
-        if err="$(umount "$mp" 2>&1)"; then
-            logger -t rc.button.reset "reset: $mp успешно размонтирован по короткому нажатию"
-            signal_success
-        else
-            logger -t rc.button.reset "reset: не удалось размонтировать $mp: $err (проверьте logread/smbstatus — накопитель, вероятно, занят)"
-            signal_failure
-        fi
+        echo "USB SWAP DISK" > /dev/console
     else
         echo "USB MOUNT NEW DISK" > /dev/console
-        logger -t rc.button.reset "reset: $mp не смонтирован, запускаю swap-disk для нового накопителя"
-        if OPENWRT_TOOL_MODE=swap-disk sh "$INSTALL_SH" >>"$INSTALL_LOG" 2>&1; then
-            logger -t rc.button.reset "reset: swap-disk успешно смонтировал новый накопитель"
-            signal_success
-        else
-            logger -t rc.button.reset "reset: swap-disk не смонтировал накопитель — см. $INSTALL_LOG и dmesg"
-            signal_failure
-        fi
+    fi
+    logger -t rc.button.reset "reset: запускаю swap-disk — $mp будет безопасно отмонтирован (если сейчас смонтирован), затем до 60 сек идёт поиск нового накопителя"
+
+    if OPENWRT_TOOL_MODE=swap-disk sh "$INSTALL_SH" >>"$INSTALL_LOG" 2>&1; then
+        logger -t rc.button.reset "reset: swap-disk успешно смонтировал накопитель"
+        signal_success
+    else
+        logger -t rc.button.reset "reset: swap-disk не смонтировал накопитель (если хотели просто извлечь старый без замены — это ожидаемо; если хотели подключить новый — см. $INSTALL_LOG и dmesg)"
+        signal_failure
     fi
 }
 
