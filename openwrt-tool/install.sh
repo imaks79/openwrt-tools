@@ -444,7 +444,15 @@ apply_network_settings() {
     # IP вторым элементом, оставив старый — dnsmasq раздавал бы клиентам
     # DNS-опцию (6) сразу с обоими адресами, и часть устройств цеплялась бы
     # за уже недоступный старый адрес.
-    uci -q delete dhcp.lan.dhcp_option
+    # "|| true": тот же класс бага, что и с dhcp.lan.ra/ula_prefix/ra_flags
+    # выше — если опция dhcp_option изначально не задана (дефолтный
+    # /etc/config/dhcp на многих роутерах), `uci -q delete` возвращает
+    # ненулевой код, и под `set -e` скрипт молча обрывается прямо здесь, ДО
+    # блока uci commit ниже — ни одна настройка не коммитится, хук в
+    # rc.local не снимается, реального ребута не происходит. Со стороны это
+    # выглядит как "зависание" сразу после лога "Применяю сетевые
+    # настройки...".
+    uci -q delete dhcp.lan.dhcp_option || true
     uci add_list dhcp.lan.dhcp_option="6,$ROUTER_LAN_IP"
 
     uci commit system
