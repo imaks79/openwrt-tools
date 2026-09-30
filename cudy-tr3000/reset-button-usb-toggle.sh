@@ -31,7 +31,21 @@
 #
 # Reboot с кнопки reset убран. Удержание 5+ секунд по-прежнему делает
 # полный сброс к заводским настройкам (factory reset) — без изменений.
-# Удержание от 1 до 5 секунд ничего не делает (как и в исходной прошивке).
+#
+# Удержание ОТ 1 ДО 5 СЕКУНД (раньше — "мёртвая зона", ничего не делала) —
+# теперь включает/выключает подключение netbird (netbird up/down). Требует
+# уже установленного и настроенного netbird (пакет netbird,
+# "/etc/init.d/netbird enable && /etc/init.d/netbird start", логин
+# "netbird login --setup-key <KEY>") — сам демон/сервис эта кнопка не
+# трогает, переключает только состояние подключения. Если бинарь netbird не
+# найден — логирует предупреждение через logger и ничего не делает (без
+# сигнала светодиодом). У кнопки reset, в отличие от флажка "mode", нет
+# двух устойчивых положений — только факт нажатия, поэтому желаемое
+# состояние вычисляется инверсией текущего (смотрим первую строку "netbird
+# status": "Daemon status: Connected" — отключаем; иначе — подключаем).
+# Результат сигнализируется теми же светодиодами, что и смена накопителя:
+# успех (netbird up/down выполнился) — белый мигает 5 раз; ошибка
+# (netbird up/down вернул ненулевой код) — красный горит 5 секунд.
 #
 # Установка на роутере (через SSH):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
@@ -54,13 +68,13 @@
 # из ../openwrt-tool:
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh
 #
-# Ограничение: "OPENWRT_TOOL_MODE=swap-disk" запускается без подключённого
-# терминала. Если к роутеру одновременно подключено НЕСКОЛЬКО
-# USB-накопителей, usb-smb-share.sh обычно просит выбрать раздел через
-# интерактивный ввод — в контексте кнопки такого терминала нет, поэтому
-# выбор не сработает и usb-smb-share.sh завершится с ошибкой (это будет
-# показано как ошибка — красный на 5 секунд). Подключайте к роутеру один
-# накопитель за раз, либо выбирайте раздел через SSH.
+# Особенность: "OPENWRT_TOOL_MODE=swap-disk" запускается без подключённого
+# терминала. Если к роутеру одновременно подключено несколько разных
+# USB-накопителей (а не несколько разделов одного и того же диска — тот
+# случай обрабатывается сам, см. usb-smb-share.sh) — спросить, какой
+# использовать, не у кого, поэтому автоматически выбирается раздел
+# наибольшего размера. Подключайте накопители по одному за раз, если нужен
+# конкретный, либо выбирайте явно через SSH.
 
 INSTALL_SH="/root/openwrt-tool/usb-smb-share.sh"
 # В той же директории, куда usb-smb-share.sh уже гарантированно сохранил
@@ -71,6 +85,8 @@ INSTALL_LOG="/root/openwrt-tool/reset-button-swap-disk.log"
 
 LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
+
+NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 
 # /var на OpenWrt — tmpfs (обычно симлинк на /tmp), переживает процесс, но не
 # перезагрузку — ровно то, что нужно: после ребута "осиротевших" локов от
@@ -200,6 +216,46 @@ handle_usb_button() {
     fi
 }
 
+# "Daemon status: Connected" — первая строка вывода "netbird status" при
+# установленном соединении (подтверждено официальной документацией
+# NetBird). Специально ищем именно "Connected" с большой буквы: у
+# состояния "Disconnected" эта подстрока не встречается ("D-i-s-c..." —
+# дальше идёт строчная "c"), так что пересечения не будет. Тот же приём,
+# что и в mode-button-wifi-toggle.sh/wps-button-wifi-toggle.sh.
+netbird_is_connected() {
+    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
+}
+
+# У кнопки reset, в отличие от флажка "mode", нет двух устойчивых положений
+# — только факт нажатия, поэтому желаемое состояние вычисляется инверсией
+# текущего (как и для короткого/долгого нажатия WPS на Cudy WR3000U).
+handle_netbird_toggle() {
+    if ! command -v "$NETBIRD_BIN" >/dev/null 2>&1; then
+        logger -t rc.button.reset "reset: '$NETBIRD_BIN' не найден — сначала установите и настройте netbird (netbird login --setup-key ...), пропускаю"
+        return 0
+    fi
+
+    if netbird_is_connected; then
+        echo "NETBIRD DOWN" > /dev/console
+        if out="$("$NETBIRD_BIN" down 2>&1)"; then
+            logger -t rc.button.reset "reset: netbird отключён (netbird down)"
+            signal_success
+        else
+            logger -t rc.button.reset "reset: netbird down завершился с ошибкой: $out"
+            signal_failure
+        fi
+    else
+        echo "NETBIRD UP" > /dev/console
+        if out="$("$NETBIRD_BIN" up 2>&1)"; then
+            logger -t rc.button.reset "reset: netbird подключён (netbird up)"
+            signal_success
+        else
+            logger -t rc.button.reset "reset: netbird up завершился с ошибкой: $out"
+            signal_failure
+        fi
+    fi
+}
+
 case "$ACTION" in
 pressed)
     [ -z "$OVERLAY" ] && return 0
@@ -214,6 +270,9 @@ released)
     if [ "$SEEN" -lt 1 ]
     then
         handle_usb_button
+    elif [ "$SEEN" -ge 1 ] && [ "$SEEN" -lt 5 ] && [ -n "$OVERLAY" ]
+    then
+        handle_netbird_toggle
     elif [ "$SEEN" -ge 5 ] && [ -n "$OVERLAY" ]
     then
         echo "FACTORY RESET" > /dev/console

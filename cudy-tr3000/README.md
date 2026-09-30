@@ -9,9 +9,11 @@
   использование SMB-шары без выхода в интернет), либо включает/выключает
   подключение netbird. В защитном положении вместо белого статусного
   светодиода горит красный.
-- **`install-reset-button.sh`** — короткое нажатие штатной кнопки reset
-  переключает USB-накопитель (подключает новый/безопасно размонтирует
-  текущий) без захода по SSH.
+- **`install-reset-button.sh`** — штатная кнопка reset совмещает по
+  длительности нажатия переключение USB-накопителя (короткое, <1 сек) и
+  включение/выключение подключения netbird (от 1 до 5 сек) — без захода по
+  SSH. Удержание 5+ секунд по-прежнему делает полный сброс к заводским
+  настройкам.
 
 Сама настройка USB → сетевая SMB-шара переехала в универсальный скрипт
 [`../openwrt-tool/usb-smb-share.sh`](../openwrt-tool/README.md) — он не
@@ -164,12 +166,11 @@ ACTION_MODE=netbird ACTION=released BUTTON=BTN_0 /etc/rc.button/BTN_0
 ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 ```
 
-## Дополнительно: переключение USB-накопителя кнопкой reset
+## Дополнительно: кнопка reset — USB-накопитель и netbird
 
-Штатная кнопка reset на Cudy TR3000 (прошивка OpenWrt 25.12.5)
-подключает/отключает USB-накопитель прямо на роутере — без SSH. Требует,
-чтобы шара уже была настроена скриптом
-[`../openwrt-tool/usb-smb-share.sh`](../openwrt-tool/README.md) (см. выше).
+Штатная кнопка reset на Cudy TR3000 (прошивка OpenWrt 25.12.5) совмещает
+по длительности нажатия две дополнительные функции — прямо на роутере, без
+захода по SSH.
 
 Штатная логика кнопки на этой прошивке (до установки):
 
@@ -178,9 +179,15 @@ ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 - удержана от 1 до 5 сек — не делала ничего («мёртвая зона»).
 
 `install-reset-button.sh` меняет короткое нажатие (<1 сек, тот же порог,
-что раньше был у reboot) на переключение накопителя, а **reboot с кнопки
-убирает** — если он всё же понадобится, доступен по SSH (`reboot`) или
-через LuCI:
+что раньше был у reboot) на переключение USB-накопителя, а среднее (от 1
+до 5 сек, раньше — «мёртвая зона») — на включение/выключение netbird.
+**Reboot с кнопки убирает** — если он всё же понадобится, доступен по SSH
+(`reboot`) или через LuCI.
+
+### Короткое нажатие (<1 сек) — USB-накопитель
+
+Требует, чтобы шара уже была настроена скриптом
+[`../openwrt-tool/usb-smb-share.sh`](../openwrt-tool/README.md) (см. выше).
 
 - Каждое короткое нажатие reset выполняет ровно то же самое, что и ручной
   запуск `OPENWRT_TOOL_MODE=swap-disk sh /root/openwrt-tool/usb-smb-share.sh`
@@ -238,10 +245,7 @@ ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 `mode-button-wifi-toggle.sh`: он держит `red:power` включённым, пока
 активен защитный режим (Wi-Fi выключен, WAN заблокирован или netbird
 отключён — в зависимости от `ACTION_MODE`), и кнопка reset не собьёт эту
-индикацию.
-
-Удержание 5+ секунд (factory reset) не изменено. Удержание от 1 до
-5 секунд по-прежнему ничего не делает.
+индикацию (тот же принцип действует и для сигнала среднего нажатия ниже).
 
 **Особенность:** `swap-disk` с кнопки запускается без интерактивного
 терминала, поэтому при нескольких видимых разделах сразу (несколько
@@ -255,7 +259,47 @@ ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 OPENWRT_TOOL_MODE=swap-disk sh /root/openwrt-tool/usb-smb-share.sh
 ```
 
-Установка одной строкой:
+### Среднее нажатие (от 1 до 5 сек) — netbird
+
+Включает/выключает подключение [netbird](https://netbird.io/) командами
+`netbird up`/`netbird down`. Требует уже установленного и настроенного
+netbird (пакет `netbird`, `/etc/init.d/netbird enable && /etc/init.d/netbird
+start`, логин `netbird login --setup-key <KEY>`) — сам демон/сервис кнопка
+не трогает, переключает только состояние подключения. Если бинарь `netbird`
+не найден — пишет предупреждение через `logger` и ничего не делает (без
+светового сигнала).
+
+У кнопки reset, в отличие от флажка "mode" (`install-mode-button.sh`), нет
+двух устойчивых положений — только факт нажатия, поэтому желаемое
+состояние вычисляется инверсией текущего (по первой строке `netbird
+status`: `Daemon status: Connected` при установленном соединении). Тот же
+приём, что и в `ACTION_MODE=netbird` у переключателя "mode" и у кнопки
+WPS на Cudy WR3000U.
+
+Результат сигнализируется теми же светодиодами, что и смена накопителя:
+успех (`netbird up`/`down` выполнился) — белый мигает 5 раз, ошибка
+(команда вернула ненулевой код) — красный горит 5 секунд.
+
+Если бинарь называется/лежит иначе, чем просто `netbird` в `PATH`,
+переопределите перед установкой:
+
+```sh
+NETBIRD_BIN=/usr/sbin/netbird \
+  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
+```
+
+Проверить без физической кнопки (эмуляция среднего нажатия, требует уже
+настроенного netbird):
+
+```sh
+SEEN=2 ACTION=released BUTTON=reset /etc/rc.button/reset
+```
+
+### Удержание 5+ секунд — factory reset
+
+Не изменено, работает как в исходной прошивке.
+
+### Установка
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
@@ -264,7 +308,8 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 Заменяет штатный `/etc/rc.button/reset` и добавляет его в
 `/etc/sysupgrade.conf`, чтобы правка пережила обновление прошивки. Лог
 запусков `swap-disk` из этой кнопки пишется в
-`/root/openwrt-tool/reset-button-swap-disk.log`.
+`/root/openwrt-tool/reset-button-swap-disk.log`; события обеих функций
+(USB и netbird) смотрите через `logread` (тег `rc.button.reset`).
 
 Имена LED (`red:power` / `white:status`) проверены на Cudy TR3000 256MB
 v1. На другой модели/прошивке сначала проверьте `ls /sys/class/leds/` и
