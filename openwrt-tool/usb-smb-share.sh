@@ -748,12 +748,45 @@ find_usb_partition() {
     if [ "$candidate_count" -gt 1 ]; then
         echo "Найдено несколько USB-разделов:"
         echo "$candidates"
-        printf "Введите путь устройства (например /dev/sda1): "
-        read -r chosen_dev < /dev/tty
-        chosen=$(echo "$candidates" | grep -E "^${chosen_dev}:")
-        if [ -z "$chosen" ]; then
-            log "Устройство $chosen_dev не найдено среди перечисленных выше."
-            exit 1
+        # "read ... < /dev/tty" без реального терминала (запуск с кнопки
+        # reset, без SSH-сессии) падает с "can't open /dev/tty: No such
+        # device or address" — под set -e это обрывает весь скрипт грубой
+        # shell-ошибкой вместо понятного сообщения. Проверяем доступность
+        # /dev/tty заранее и, если его нет, не пытаемся спрашивать вовсе.
+        if [ -c /dev/tty ] && { : < /dev/tty; } 2>/dev/null; then
+            printf "Введите путь устройства (например /dev/sda1): "
+            read -r chosen_dev < /dev/tty
+            chosen=$(echo "$candidates" | grep -E "^${chosen_dev}:")
+            if [ -z "$chosen" ]; then
+                log "Устройство $chosen_dev не найдено среди перечисленных выше."
+                exit 1
+            fi
+        else
+            # Нет интерактивного терминала — спросить не можем. Вместо
+            # падения автоматически выбираем раздел НАИБОЛЬШЕГО размера
+            # (/sys/class/block/<dev>/size, в 512-байтных секторах): на
+            # накопителях с несколькими разделами это почти всегда основной
+            # раздел с данными, а не служебный (классический пример —
+            # загрузочные Ventoy-флешки: большой data-раздел + маленький
+            # EFI-раздел VTOYEFI на пару мегабайт).
+            log "Терминал недоступен (запуск без SSH, например с кнопки reset) — выбираю раздел наибольшего размера из найденных:"
+            best_dev=""
+            best_size=-1
+            for dev in $(echo "$candidates" | cut -d: -f1); do
+                devname="${dev#/dev/}"
+                size="$(cat "/sys/class/block/${devname}/size" 2>/dev/null || echo 0)"
+                case "$size" in *[!0-9]*|"") size=0 ;; esac
+                if [ "$size" -gt "$best_size" ]; then
+                    best_size="$size"
+                    best_dev="$dev"
+                fi
+            done
+            if [ -z "$best_dev" ]; then
+                log "Не удалось определить размеры найденных разделов — выбор невозможен. Подключайте один накопитель за раз либо выбирайте раздел через SSH."
+                exit 1
+            fi
+            chosen=$(echo "$candidates" | grep -E "^${best_dev}:")
+            log "Выбран $best_dev как крупнейший из найденных ($((best_size / 2048)) МиБ)"
         fi
     else
         chosen="$candidates"
