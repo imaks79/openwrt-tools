@@ -122,6 +122,26 @@ sh /root/openwrt-tool/install.sh
 - Адрес LAN можно переопределить через `OPENWRT_TOOL_LAN_IP` — значение
   подставляется во все зависимые параметры одновременно, что исключает
   рассинхронизацию между ними.
+- Приложение для избирательного проксирования выбирается через
+  `OPENWRT_TOOL_PROXY_APP` — `podkop` (по умолчанию), `forkop`
+  ([его форк](https://github.com/ushan0v/forkop)) или `none`, чтобы не
+  ставить ни одно из них:
+  ```sh
+  OPENWRT_TOOL_PROXY_APP=forkop sh /root/openwrt-tool/install.sh
+  ```
+  Перед этим в интерактиве спрашивается, ставить ли AdGuard Home
+  (`OPENWRT_TOOL_ADGUARDHOME=yes|no`, по умолчанию `yes`). Если «нет», пакет и
+  конфиг AGH не ставятся, а dnsmasq остаётся на порту 53 и раздаёт DNS сам:
+  `dhcp.@dnsmasq[0].port` и DHCP-опция 6 удаляются (в том числе у ранее
+  настроенного роутера; уже установленный AGH не удаляется).
+  При интерактивном запуске в терминале (если `OPENWRT_TOOL_PROXY_APP` не
+  задана) скрипт сначала спрашивает, что ставить — podkop, forkop или ничего. Для
+  forkop дальше задаются два вопроса его установщика (русский пакет интерфейса LuCI; сборка sing-box —
+  stable или extended) и запоминает ответы в `/etc/openwrt-tool.proxy`, чтобы
+  применить их на этапе 2 после перезагрузки. При запуске через
+  `wget | sh` вопросов нет — используются умолчания (русский интерфейс —
+  да, sing-box — stable). Явно: `OPENWRT_TOOL_FORKOP_I18N=yes|no`,
+  `OPENWRT_TOOL_FORKOP_SINGBOX=stable|extended`.
 
 ---
 

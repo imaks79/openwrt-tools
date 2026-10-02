@@ -17,6 +17,18 @@
 # AdGuard Home):
 #   OPENWRT_TOOL_LAN_IP=192.168.50.1 sh /root/openwrt-tool/install.sh
 #
+# Чтобы поставить forkop (https://github.com/ushan0v/forkop) вместо podkop
+# по умолчанию, или не ставить ни то, ни другое (значения: podkop/forkop/none):
+#   OPENWRT_TOOL_PROXY_APP=forkop sh /root/openwrt-tool/install.sh
+# При интерактивном запуске (sh /root/openwrt-tool/install.sh в терминале)
+# скрипт сам спросит, ставить ли AdGuard Home (OPENWRT_TOOL_ADGUARDHOME=yes|no),
+# и что ставить: podkop, forkop или ничего (если не задана
+# OPENWRT_TOOL_PROXY_APP). Если выбран forkop, он сам задаст два вопроса установщика forkop: русский пакет
+# интерфейса LuCI и сборка sing-box (stable/extended). При запуске через
+# "wget | sh" или из rc.local вопросов нет — берутся значения по умолчанию
+# (русский интерфейс: да, sing-box: stable). Можно задать явно:
+#   OPENWRT_TOOL_FORKOP_I18N=yes|no  OPENWRT_TOOL_FORKOP_SINGBOX=stable|extended
+#
 # Скрипт сам переживает две перезагрузки (после обновления пакетов и после
 # финальной настройки): он сохраняет себя в /root/openwrt-tool/install.sh,
 # регистрирует одноразовый хук в /etc/rc.local и после каждого ребута
@@ -53,6 +65,21 @@ ROUTER_HOSTNAME="${OPENWRT_TOOL_HOSTNAME:-OpenWrt}"
 # 192.168.3.1 (network.lan.ipaddr, DNS-опция DHCP, конфиг AdGuard Home),
 # так что рассинхронизации между этими параметрами не возникнет.
 ROUTER_LAN_IP="${OPENWRT_TOOL_LAN_IP:-192.168.3.1}"
+# Приложение для избирательного проксирования: podkop (по умолчанию,
+# https://github.com/itdoginfo/podkop) или его форк forkop
+# (https://github.com/ushan0v/forkop). "none" — не ставить ни одно из них.
+# Итоговое значение определяет resolve_proxy_choices (env > сохранённое
+# после этапа 1 > podkop).
+PROXY_APP=podkop
+# Выбор, сделанный на этапе 1, переживает перезагрузку через этот файл: этап 2
+# запускается хуком из rc.local без терминала и без наших переменных окружения.
+PROXY_FILE=/etc/openwrt-tool.proxy
+# Ответы на два вопроса установщика forkop (см. ask_forkop_questions).
+FORKOP_I18N=""
+FORKOP_SINGBOX=""
+# Ставить ли AdGuard Home (yes/no). Без него dnsmasq остаётся на порту 53 и
+# сам раздаёт DNS клиентам (см. apply_network_settings).
+ADGUARDHOME=""
 # DHCP-пул выдаётся смещением от начала подсети: диапазон
 # [DHCP_START, DHCP_START + DHCP_LIMIT - 1] в последнем октете. Вынесены в
 # переменные, чтобы использовать те же значения при валидации ROUTER_LAN_IP
@@ -115,6 +142,162 @@ validate_lan_ip() {
         log "OPENWRT_TOOL_LAN_IP='$ip' конфликтует с диапазоном DHCP (.$DHCP_START-.$dhcp_end на этом же роутере). Выберите адрес вне этого диапазона."
         exit 1
     fi
+}
+
+validate_proxy_app() {
+    case "$PROXY_APP" in
+        podkop|forkop|none) ;;
+        *)
+            log "OPENWRT_TOOL_PROXY_APP='$PROXY_APP' — допустимые значения: podkop, forkop, none."
+            exit 1
+            ;;
+    esac
+    case "$ADGUARDHOME" in
+        ''|yes|no) ;;
+        *)
+            log "OPENWRT_TOOL_ADGUARDHOME='$ADGUARDHOME' — допустимые значения: yes, no."
+            exit 1
+            ;;
+    esac
+    case "$FORKOP_I18N" in
+        ''|yes|no) ;;
+        *)
+            log "OPENWRT_TOOL_FORKOP_I18N='$FORKOP_I18N' — допустимые значения: yes, no."
+            exit 1
+            ;;
+    esac
+    case "$FORKOP_SINGBOX" in
+        ''|stable|extended) ;;
+        *)
+            log "OPENWRT_TOOL_FORKOP_SINGBOX='$FORKOP_SINGBOX' — допустимые значения: stable, extended."
+            exit 1
+            ;;
+    esac
+}
+
+# Задаёт вопрос с вариантами. $1 — вопрос, $2 — номер варианта по умолчанию,
+# остальные аргументы — варианты (нумеруются с 1). Результат — в CHOICE.
+# Пустой ввод и EOF (stdin закрыт) дают значение по умолчанию, чтобы не уйти
+# в бесконечный цикл "введите ещё раз", как это было с установщиками
+# podkop/forkop.
+ask_choice() {
+    question="$1"; default="$2"; shift 2
+    count=$#
+    while :; do
+        printf '\n%s\n' "$question"
+        n=1
+        for opt in "$@"; do
+            printf '  %s) %s\n' "$n" "$opt"
+            n=$((n + 1))
+        done
+        printf 'Выбор [%s]: ' "$default"
+        ans=""
+        read -r ans || { echo; ans="$default"; }
+        [ -n "$ans" ] || ans="$default"
+        case "$ans" in
+            ''|*[!0-9]*) ;;
+            *)
+                if [ "$ans" -ge 1 ] && [ "$ans" -le "$count" ]; then
+                    CHOICE="$ans"
+                    return 0
+                fi
+                ;;
+        esac
+        echo "Введите число от 1 до $count."
+    done
+}
+
+# Установщик forkop задаёт два вопроса: ставить ли русский пакет интерфейса
+# LuCI и какую сборку sing-box ставить. Спрашиваем сами и только при
+# интерактивном запуске (stdin — терминал, не хук из rc.local и не
+# "wget | sh"). Иначе берём значения по умолчанию — те же, что выбирает сам
+# установщик forkop без терминала: русский интерфейс "да", sing-box stable.
+ask_forkop_questions() {
+    if [ -t 0 ] && [ -z "$OPENWRT_TOOL_BACKGROUND" ]; then
+        if [ -z "$FORKOP_I18N" ]; then
+            ask_choice "forkop: установить русский пакет интерфейса LuCI?" 1 "да" "нет"
+            [ "$CHOICE" = 1 ] && FORKOP_I18N=yes || FORKOP_I18N=no
+        fi
+        if [ -z "$FORKOP_SINGBOX" ]; then
+            ask_choice "forkop: какую сборку sing-box ставить?" 1 "stable (обычная)" "extended (расширенная)"
+            [ "$CHOICE" = 1 ] && FORKOP_SINGBOX=stable || FORKOP_SINGBOX=extended
+        fi
+    fi
+    [ -n "$FORKOP_I18N" ] || FORKOP_I18N=yes
+    [ -n "$FORKOP_SINGBOX" ] || FORKOP_SINGBOX=stable
+}
+
+# Определяет PROXY_APP и ответы для forkop. Приоритет: переменные окружения >
+# значения, сохранённые на этапе 1 > умолчания. На этапе 1 старый файл
+# игнорируется (новый прогон), на этапе 2 читается — туда мы попадаем после
+# ребута из rc.local, где окружения и терминала уже нет.
+resolve_proxy_choices() {
+    saved_app=""; saved_i18n=""; saved_singbox=""; saved_agh=""
+    if [ "$STAGE" = 1 ]; then
+        rm -f "$PROXY_FILE"
+    elif [ -f "$PROXY_FILE" ]; then
+        . "$PROXY_FILE"
+    fi
+    PROXY_APP="${OPENWRT_TOOL_PROXY_APP:-${saved_app:-podkop}}"
+    # Интерактивный запуск на этапе 1 без явной переменной — даём выбрать
+    # приложение или не ставить ни одно.
+    if [ "$STAGE" = 1 ] && [ -z "$OPENWRT_TOOL_PROXY_APP" ] \
+        && [ -t 0 ] && [ -z "$OPENWRT_TOOL_BACKGROUND" ]; then
+        ask_choice "Какое приложение для избирательного проксирования ставить?" 1 \
+            "podkop" "forkop (форк podkop)" "не ставить"
+        case "$CHOICE" in
+            1) PROXY_APP=podkop ;;
+            2) PROXY_APP=forkop ;;
+            3) PROXY_APP=none ;;
+        esac
+    fi
+    FORKOP_I18N="${OPENWRT_TOOL_FORKOP_I18N:-$saved_i18n}"
+    FORKOP_SINGBOX="${OPENWRT_TOOL_FORKOP_SINGBOX:-$saved_singbox}"
+    ADGUARDHOME="${OPENWRT_TOOL_ADGUARDHOME:-$saved_agh}"
+    validate_proxy_app
+    if [ "$STAGE" = 1 ] && [ -z "$ADGUARDHOME" ] \
+        && [ -t 0 ] && [ -z "$OPENWRT_TOOL_BACKGROUND" ]; then
+        ask_choice "Ставить AdGuard Home?" 1 "да" "нет"
+        [ "$CHOICE" = 1 ] && ADGUARDHOME=yes || ADGUARDHOME=no
+    fi
+    [ -n "$ADGUARDHOME" ] || ADGUARDHOME=yes
+    [ "$PROXY_APP" = forkop ] && ask_forkop_questions
+    if [ "$STAGE" = 1 ]; then
+        printf "saved_app='%s'\nsaved_i18n='%s'\nsaved_singbox='%s'\nsaved_agh='%s'\n" \
+            "$PROXY_APP" "$FORKOP_I18N" "$FORKOP_SINGBOX" "$ADGUARDHOME" >"$PROXY_FILE"
+    fi
+}
+
+# Скачивает установщик forkop и подставляет в него наши ответы (сам он
+# спрашивает только через терминал, а без терминала всегда берёт умолчания).
+# Если патч не лёг (установщик изменился) — запускаем оригинал с умолчаниями.
+install_forkop() {
+    forkop_orig="$SELF_DIR/forkop-install.sh"
+    forkop_patched="$SELF_DIR/forkop-install.patched.sh"
+    log "Устанавливаю forkop (русский интерфейс: $FORKOP_I18N, sing-box: $FORKOP_SINGBOX)..."
+    if ! wget -qO "$forkop_orig" https://raw.githubusercontent.com/ushan0v/forkop/main/install.sh \
+        || [ ! -s "$forkop_orig" ]; then
+        log "ВНИМАНИЕ: не удалось скачать установщик forkop, продолжаю."
+        return 0
+    fi
+    sed -e '/^numbered_yes_no_prompt() {/a\
+    case "$FORKOP_I18N_ANSWER" in 1) return 0 ;; 2) return 1 ;; esac' \
+        -e '/^select_sing_box_installation() {/,/^}/{
+s/if \[ ! -t 0 \]; then/if [ -n "$FORKOP_SINGBOX_ANSWER" ] || [ ! -t 0 ]; then/
+s/^        SING_BOX_INSTALL_VARIANT="stable"/        SING_BOX_INSTALL_VARIANT="${FORKOP_SINGBOX_ANSWER:-stable}"/
+}' "$forkop_orig" >"$forkop_patched"
+    forkop_run="$forkop_patched"
+    if ! grep -q 'FORKOP_I18N_ANSWER' "$forkop_patched" \
+        || ! grep -q 'FORKOP_SINGBOX_ANSWER:-stable' "$forkop_patched"; then
+        log "ВНИМАНИЕ: установщик forkop изменился, не могу передать ответы — будут умолчания (русский интерфейс, sing-box stable)."
+        forkop_run="$forkop_orig"
+    fi
+    i18n_answer=2; [ "$FORKOP_I18N" = yes ] && i18n_answer=1
+    # </dev/null: stdin не терминал — установщик не зависнет на вопросах.
+    FORKOP_I18N_ANSWER="$i18n_answer" FORKOP_SINGBOX_ANSWER="$FORKOP_SINGBOX" \
+        sh "$forkop_run" </dev/null \
+        || log "ВНИМАНИЕ: установка forkop завершилась с ошибкой, продолжаю."
+    rm -f "$forkop_orig" "$forkop_patched"
 }
 
 wait_for_network() {
@@ -438,22 +621,32 @@ apply_network_settings() {
     uci set dhcp.lan.dhcpv6='disabled'
     uci set dhcp.lan.ra_management='0'
     uci -q delete dhcp.lan.ra_flags || true
-    uci set dhcp.@dnsmasq[0].port='5353'
-    # Список, а не значение: при повторном запуске (например, со сменой
-    # ROUTER_LAN_IP) add_list без предварительной очистки добавил бы новый
-    # IP вторым элементом, оставив старый — dnsmasq раздавал бы клиентам
-    # DNS-опцию (6) сразу с обоими адресами, и часть устройств цеплялась бы
-    # за уже недоступный старый адрес.
-    # "|| true": тот же класс бага, что и с dhcp.lan.ra/ula_prefix/ra_flags
-    # выше — если опция dhcp_option изначально не задана (дефолтный
-    # /etc/config/dhcp на многих роутерах), `uci -q delete` возвращает
-    # ненулевой код, и под `set -e` скрипт молча обрывается прямо здесь, ДО
-    # блока uci commit ниже — ни одна настройка не коммитится, хук в
-    # rc.local не снимается, реального ребута не происходит. Со стороны это
-    # выглядит как "зависание" сразу после лога "Применяю сетевые
-    # настройки...".
-    uci -q delete dhcp.lan.dhcp_option || true
-    uci add_list dhcp.lan.dhcp_option="6,$ROUTER_LAN_IP"
+    if [ "$ADGUARDHOME" = yes ]; then
+        # AdGuard Home занимает порт 53, а dnsmasq (его upstream, к которому
+        # цепляется podkop/forkop) уходит на 5353.
+        uci set dhcp.@dnsmasq[0].port='5353'
+        # Список, а не значение: при повторном запуске (например, со сменой
+        # ROUTER_LAN_IP) add_list без предварительной очистки добавил бы новый
+        # IP вторым элементом, оставив старый — dnsmasq раздавал бы клиентам
+        # DNS-опцию (6) сразу с обоими адресами, и часть устройств цеплялась бы
+        # за уже недоступный старый адрес.
+        # "|| true": тот же класс бага, что и с dhcp.lan.ra/ula_prefix/ra_flags
+        # выше — если опция dhcp_option изначально не задана (дефолтный
+        # /etc/config/dhcp на многих роутерах), `uci -q delete` возвращает
+        # ненулевой код, и под `set -e` скрипт молча обрывается прямо здесь, ДО
+        # блока uci commit ниже — ни одна настройка не коммитится, хук в
+        # rc.local не снимается, реального ребута не происходит. Со стороны это
+        # выглядит как "зависание" сразу после лога "Применяю сетевые
+        # настройки...".
+        uci -q delete dhcp.lan.dhcp_option || true
+        uci add_list dhcp.lan.dhcp_option="6,$ROUTER_LAN_IP"
+    else
+        # Без AdGuard Home dnsmasq сам отвечает на порту 53 и раздаёт DNS
+        # роутера. Откатываем настройки, сделанные для AGH, если скрипт уже
+        # запускался с ним (пакет и конфиг AGH не трогаем).
+        uci -q delete dhcp.@dnsmasq[0].port || true
+        uci -q delete dhcp.lan.dhcp_option || true
+    fi
 
     uci commit system
     uci commit attendedsysupgrade
@@ -480,6 +673,8 @@ ensure_local_copy
 
 STAGE=1
 [ -f "$STATE_FILE" ] && STAGE=$(cat "$STATE_FILE")
+
+resolve_proxy_choices
 
 case "$STAGE" in
 1)
@@ -520,18 +715,28 @@ case "$STAGE" in
     fi
     wait_for_network
     apk update
-    apk add luci-app-adguardhome
+    [ "$ADGUARDHOME" = yes ] && apk add luci-app-adguardhome
     apk add wpad-openssl
     # apk add luci-proto-wireguard
-    log "Устанавливаю podkop..."
-    # Скрипт podkop задаёт интерактивные вопросы (y/n) через `read`. Так как
-    # наш install.sh обычно запускается как "wget -O - ... | sh", stdin уже
-    # исчерпан чтением самого скрипта, и `read` внутри podkop сразу получает
-    # EOF — это уходит в бесконечный цикл "Введите y или n". Поэтому отвечаем
-    # на все вопросы заранее через `yes` (подтверждаем русский язык интерфейса
-    # и прочие da/no-подсказки значением по умолчанию).
-    yes | sh <(wget -O - https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh) \
-        || log "ВНИМАНИЕ: установка podkop завершилась с ошибкой, продолжаю."
+    # Установщик podkop задаёт интерактивные вопросы (y/n) через `read`. Так
+    # как наш install.sh обычно запускается как "wget -O - ... | sh", stdin уже
+    # исчерпан чтением самого скрипта, и `read` сразу получает EOF — это
+    # уходит в бесконечный цикл "Введите y или n". Поэтому отвечаем заранее
+    # через `yes`. forkop обрабатывается отдельно (install_forkop): его
+    # вопросы мы задаём сами на этапе 1.
+    case "$PROXY_APP" in
+        podkop)
+            log "Устанавливаю podkop..."
+            yes | sh <(wget -O - https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh) \
+                || log "ВНИМАНИЕ: установка podkop завершилась с ошибкой, продолжаю."
+            ;;
+        forkop)
+            install_forkop
+            ;;
+        none)
+            log "OPENWRT_TOOL_PROXY_APP=none — пропускаю установку podkop/forkop."
+            ;;
+    esac
 
     log "Устанавливаю тему luci-theme-proton2025..."
     wget -qO- https://raw.githubusercontent.com/ChesterGoodiny/luci-theme-proton2025/main/install.sh | sh \
@@ -545,18 +750,18 @@ case "$STAGE" in
     # sh <(wget -O - https://raw.githubusercontent.com/Slava-Shchipunov/awg-openwrt/refs/heads/master/amneziawg-install.sh) -en \
     #   || log "ВНИМАНИЕ: установка скрипта AmneziaWG завершилась с ошибкой, продолжаю."
 
-    # log "Устаналиваю Forkop ..."
-    # yes | sh <(wget -O - https://raw.githubusercontent.com/ushan0v/forkop/main/install.sh) \
-    #   || log "ВНИМАНИЕ: установка скрипта Forkop завершилась с ошибкой, продолжаю"
-
-    write_adguardhome_config
+    if [ "$ADGUARDHOME" = yes ]; then
+        write_adguardhome_config
+    else
+        log "AdGuard Home не ставится (выбор пользователя), пропускаю его установку и конфиг."
+    fi
     # Конфиг AdGuard Home биндится на $ROUTER_LAN_IP — этот адрес появится на
     # интерфейсе LAN только после apply_network_settings (uci commit) и
     # перезагрузки в конце этапа. Поэтому здесь сервис только включаем
     # (автозапуск), а не запускаем/перезапускаем: если поднять его раньше
     # смены IP, AdGuard Home не сможет забиндиться на $ROUTER_LAN_IP:8080 и
     # откатится в мастер первого запуска на 0.0.0.0:3000.
-    if [ -x /etc/init.d/adguardhome ]; then
+    if [ "$ADGUARDHOME" = yes ] && [ -x /etc/init.d/adguardhome ]; then
         /etc/init.d/adguardhome enable || true
     fi
 
