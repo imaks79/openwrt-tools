@@ -49,6 +49,20 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr30
 устройстве; переопределение через переменные окружения и все нюансы — в
 [cudy-wr3000u/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md).
 
+### [xiaomi-ax3000t](xiaomi-ax3000t/README.md)
+
+Кнопка Mesh роутера Xiaomi AX3000T: однократное нажатие включает/выключает
+Wi-Fi целиком (все радиомодули). Пока Wi-Fi выключен — горит светодиод
+`yellow:status`, при включении синий возвращается; состояние LED
+восстанавливается после перезагрузки.
+
+```sh
+wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
+```
+
+Подключайтесь по кабелю — нажатие обрывает Wi-Fi-сессию. Нюансы и
+переопределение LED — в [xiaomi-ax3000t/README.md](xiaomi-ax3000t/README.md).
+
 ### [openwrt-tool](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md)
 
 Два универсальных скрипта, не привязанных к конкретной модели роутера.
@@ -79,6 +93,7 @@ Home, troubleshooting NTFS, логи — в
 openwrt-tools/
 ├── cudy-tr3000/                    Кнопки mode/reset для Cudy TR3000 (поверх openwrt-tool)
 ├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi вкл/выкл + LED для Cudy WR3000U
+├── xiaomi-ax3000t/                 Кнопка Mesh → Wi-Fi вкл/выкл + LED для Xiaomi AX3000T
 └── openwrt-tool/                   Два универсальных скрипта: setup+AdGuard Home и USB-шара
 ```
 
