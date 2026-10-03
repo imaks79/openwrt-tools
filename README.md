@@ -4,7 +4,7 @@
 подкаталоге со своей подробной документацией — здесь только обзор и
 команды для быстрого запуска одной строкой, чтобы не искать их по разным
 репозиториям или по всему документу. Большинство подкаталогов полностью
-самостоятельны; исключение — кнопка reset в `cudy-tr3000`,
+самостоятельны; исключение — USB-функция кнопки reset в `cudy-tr3000`,
 которая работает поверх шары, настроенной универсальным
 `openwrt-tool/usb-smb-share.sh` (см. ниже).
 
@@ -22,9 +22,9 @@
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 ```
 
-Кнопка reset → короткое нажатие подключает новый накопитель или
-безопасно размонтирует текущий (требует, чтобы шара уже была настроена
-`usb-smb-share.sh`):
+Кнопка reset → < 1 сек: подключить новый USB-накопитель или безопасно
+размонтировать текущий (требует, чтобы шара уже была настроена
+`usb-smb-share.sh`); 1–5 сек: netbird вкл/выкл; ≥ 5 сек: заводской сброс:
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-reset-button.sh | sh
@@ -47,17 +47,19 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr30
 
 ### [xiaomi-ax3000t](xiaomi-ax3000t/README.md)
 
-Кнопка Mesh роутера Xiaomi AX3000T: однократное нажатие включает/выключает
-Wi-Fi целиком (все радиомодули). Пока Wi-Fi выключен — горит светодиод
-`yellow:status`, при включении синий возвращается; состояние LED
-восстанавливается после перезагрузки.
+Кнопка Mesh роутера Xiaomi AX3000T по длительности удержания: < 2 сек →
+Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥ 5 сек → netbird
+вкл/выкл (после отключения VPN/netbird синий LED моргает дважды). Индикатор:
+жёлтый — есть подключённый пир (даже при выключенном Wi-Fi), синий — пиров
+нет и Wi-Fi включён, погашен — пиров нет и Wi-Fi выключен. LED обновляет
+фоновый опрос каждые 5 сек.
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 ```
 
-Подключайтесь по кабелю — нажатие обрывает Wi-Fi-сессию. Нюансы и
-переопределение LED — в [xiaomi-ax3000t/README.md](xiaomi-ax3000t/README.md).
+Подключайтесь по кабелю — нажатие обрывает Wi-Fi-сессию. Нюансы, настройка
+порогов и переопределение LED — в [xiaomi-ax3000t/README.md](xiaomi-ax3000t/README.md).
 
 ### [openwrt-tool](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md)
 
@@ -87,9 +89,9 @@ Home, troubleshooting NTFS, логи — в
 
 ```
 openwrt-tools/
-├── cudy-tr3000/                    Кнопки mode/reset для Cudy TR3000 (поверх openwrt-tool)
+├── cudy-tr3000/                    mode → Wi-Fi, reset → USB/netbird/factory reset для Cudy TR3000 (поверх openwrt-tool)
 ├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi / wireguard+amneziawg / netbird для Cudy WR3000U
-├── xiaomi-ax3000t/                 Кнопка Mesh → Wi-Fi вкл/выкл + LED для Xiaomi AX3000T
+├── xiaomi-ax3000t/                 Кнопка Mesh → Wi-Fi / wireguard+amneziawg / netbird + LED по пирам для Xiaomi AX3000T
 └── openwrt-tool/                   Два универсальных скрипта: setup+AdGuard Home и USB-шара
 ```
 
