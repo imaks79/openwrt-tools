@@ -15,13 +15,15 @@
 #   Wi-Fi выключен                          — оба LED погашены;
 #   Wi-Fi включён, пиров нет                — горит синий;
 #   Wi-Fi включён, есть подключённый пир    — горит жёлтый.
-# Пир считается подключённым, если: у wireguard/amneziawg-интерфейса был
-# handshake не старше HANDSHAKE_MAX_AGE секунд (по умолчанию 5); у netbird
+# Пир считается подключённым, если: у wireguard/amneziawg-интерфейса
+# вырос счётчик принятых байт за последние ACTIVE_WINDOW секунд (по умолчанию
+# 30; keepalive клиента тоже растит счётчик) либо handshake не старше
+# HANDSHAKE_MAX_AGE секунд (по умолчанию 5); у netbird
 # "netbird status" показывает хотя бы одного Connected-пира.
 #
-# Режим ACTION=sync (без нажатия) только пересчитывает LED по текущему
-# состоянию. Вызывается при загрузке из /etc/rc.local и раз в минуту из cron
-# (чтобы LED следовал за подключением/отключением пиров).
+# Режим ACTION=daemon — фоновый цикл (запускается из /etc/rc.local), каждые
+# POLL_INTERVAL секунд (по умолчанию 5) пересчитывает LED, чтобы он следовал
+# за подключением/отключением пиров. ACTION=sync — разовый пересчёт.
 #
 # В device tree AX3000T кнопка Mesh = BTN_9, поэтому файл называется BTN_9.
 
@@ -31,12 +33,16 @@ LED_YELLOW_DIR="${LED_YELLOW_DIR:-}"
 LED_BLUE_DIR="${LED_BLUE_DIR:-}"
 NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 HANDSHAKE_MAX_AGE="${HANDSHAKE_MAX_AGE:-5}"
+ACTIVE_WINDOW="${ACTIVE_WINDOW:-30}"
+POLL_INTERVAL="${POLL_INTERVAL:-5}"
+PIDFILE=/var/run/mesh-btn.pid
+BUSYFILE=/var/run/mesh-btn.busy
 NETBIRD_TIMEOUT="${NETBIRD_TIMEOUT:-20}"
 
 [ -z "$LED_YELLOW_DIR" ] && LED_YELLOW_DIR="$(ls -d /sys/class/leds/*yellow* 2>/dev/null | head -n1)"
 [ -z "$LED_BLUE_DIR" ] && LED_BLUE_DIR="$(ls -d /sys/class/leds/*blue* 2>/dev/null | head -n1)"
 
-[ "$ACTION" = "released" ] || [ "$ACTION" = "sync" ] || exit 0
+[ "$ACTION" = "released" ] || [ "$ACTION" = "sync" ] || [ "$ACTION" = "daemon" ] || exit 0
 
 led_on() {
     dir="$1"
@@ -105,13 +111,29 @@ iface_is_up() {
     [ "$(ifstatus "$1" 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)" = "true" ]
 }
 
-# handshake моложе HANDSHAKE_MAX_AGE хотя бы у одного пира интерфейса
+# Пир активен, если у него вырос счётчик принятых байт за последние
+# ACTIVE_WINDOW секунд (keepalive клиента тоже растит счётчик) или handshake
+# не старше HANDSHAKE_MAX_AGE. Предыдущие значения хранятся в
+# /tmp/mesh-btn-<iface>.state ("pubkey rx время_последнего_роста").
 # $1 — утилита (wg|awg), $2 — интерфейс
 tool_has_peer() {
     command -v "$1" >/dev/null 2>&1 || return 1
-    now="$(date +%s)"
-    "$1" show "$2" latest-handshakes 2>/dev/null | awk -v now="$now" -v max="$HANDSHAKE_MAX_AGE" \
-        '$2 > 0 && now - $2 <= max { found = 1 } END { exit !found }'
+    state="/tmp/mesh-btn-$2.state"
+    "$1" show "$2" dump 2>/dev/null | awk -v now="$(date +%s)" -v win="$ACTIVE_WINDOW" \
+        -v hsmax="$HANDSHAKE_MAX_AGE" -v state="$state" '
+        BEGIN { while ((getline line < state) > 0) { split(line, f, " "); rx[f[1]] = f[2]; ts[f[1]] = f[3] } close(state) }
+        NF >= 8 {
+            k = $1; hs = $5; r = $6
+            if (!(k in rx)) ts[k] = 0
+            else if (rx[k] != r) ts[k] = now
+            rx[k] = r; seen[k] = 1
+            if (now - ts[k] <= win || (hs > 0 && now - hs <= hsmax)) found = 1
+        }
+        END {
+            printf "" > state
+            for (k in seen) print k, rx[k], ts[k] >> state
+            exit !found
+        }'
 }
 
 vpn_has_peer() {
@@ -217,7 +239,23 @@ apply_led() {
     fi
 }
 
+if [ "$ACTION" = "daemon" ]; then
+    # фоновый опрос: единственный экземпляр, пропускает цикл, пока
+    # обрабатывается нажатие кнопки (BUSYFILE)
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        exit 0
+    fi
+    echo "$$" > "$PIDFILE"
+    trap 'rm -f "$PIDFILE"; exit 0' INT TERM
+    while :; do
+        [ -f "$BUSYFILE" ] || apply_led
+        sleep "$POLL_INTERVAL"
+    done
+fi
+
 if [ "$ACTION" = "released" ]; then
+    : > "$BUSYFILE"
+    trap 'rm -f "$BUSYFILE"' EXIT
     seen="${SEEN:-0}"
     if [ "$seen" -ge 5 ] 2>/dev/null; then
         toggle_netbird

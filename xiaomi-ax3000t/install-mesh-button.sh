@@ -21,7 +21,6 @@ TARGET=/etc/rc.button/BTN_9
 SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/mesh-button-wifi-toggle.sh"
 SYSUPGRADE_CONF=/etc/sysupgrade.conf
 RC_LOCAL=/etc/rc.local
-SYNC_LINE="ACTION=sync BUTTON=BTN_9 $TARGET"
 
 if [ -f "$TARGET" ] && [ ! -f "$TARGET.orig" ]; then
     cp "$TARGET" "$TARGET.orig"
@@ -47,26 +46,34 @@ if [ -n "$NETBIRD_BIN" ]; then
     echo "NETBIRD_BIN переопределён на $NETBIRD_BIN"
 fi
 
-# Синхронизация LED при загрузке и раз в минуту из cron (LED следует за
-# подключением/отключением пиров). Вставляем в rc.local перед "exit 0".
+# Фоновый опрос пиров (ACTION=daemon, цикл каждые POLL_INTERVAL с) запускается
+# при загрузке из rc.local — перед "exit 0".
+DAEMON_LINE="(sleep 15; ACTION=daemon BUTTON=BTN_9 $TARGET) &"
 [ -f "$RC_LOCAL" ] || printf '#!/bin/sh\nexit 0\n' > "$RC_LOCAL"
-if ! grep -qF "$SYNC_LINE" "$RC_LOCAL"; then
-    sed -i "/^exit 0/i (sleep 15; $SYNC_LINE) &" "$RC_LOCAL"
-    echo "Добавил синхронизацию LED при загрузке в $RC_LOCAL"
+sed -i "\#ACTION=sync BUTTON=BTN_9#d" "$RC_LOCAL"   # старая синхронизация
+if ! grep -qF "ACTION=daemon BUTTON=BTN_9" "$RC_LOCAL"; then
+    sed -i "/^exit 0/i $DAEMON_LINE" "$RC_LOCAL"
+    echo "Добавил запуск фонового опроса в $RC_LOCAL"
 fi
 
+# Прежняя версия опрашивала раз в минуту из cron — убираем запись.
 CRON_FILE=/etc/crontabs/root
-CRON_LINE="* * * * * $SYNC_LINE"
-touch "$CRON_FILE"
-if ! grep -qF "$SYNC_LINE" "$CRON_FILE"; then
-    echo "$CRON_LINE" >> "$CRON_FILE"
-    echo "Добавил опрос пиров раз в минуту в $CRON_FILE"
+if [ -f "$CRON_FILE" ] && grep -qF "BUTTON=BTN_9" "$CRON_FILE"; then
+    sed -i "\#BUTTON=BTN_9#d" "$CRON_FILE"
+    /etc/init.d/cron restart 2>/dev/null
+    echo "Убрал старую запись из $CRON_FILE"
 fi
-/etc/init.d/cron enable 2>/dev/null
-/etc/init.d/cron restart 2>/dev/null
+
+# (Пере)запускаем демон сейчас.
+if [ -f /var/run/mesh-btn.pid ]; then
+    kill "$(cat /var/run/mesh-btn.pid)" 2>/dev/null
+    rm -f /var/run/mesh-btn.pid
+fi
+ACTION=daemon BUTTON=BTN_9 "$TARGET" >/dev/null 2>&1 &
+echo "Фоновый опрос запущен"
 
 [ -f "$SYSUPGRADE_CONF" ] || : > "$SYSUPGRADE_CONF"
-for f in "$TARGET" "$RC_LOCAL" "$CRON_FILE"; do
+for f in "$TARGET" "$RC_LOCAL"; do
     grep -qxF "$f" "$SYSUPGRADE_CONF" || echo "$f" >> "$SYSUPGRADE_CONF"
 done
 

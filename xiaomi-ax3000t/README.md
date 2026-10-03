@@ -14,9 +14,9 @@
 
 - Wi-Fi выключен — оба LED погашены;
 - Wi-Fi включён, пиров нет — синий;
-- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — handshake не старше 5 с, netbird — есть Connected-пир) — жёлтый.
+- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — вырос счётчик принятых байт за последние 30 с (`ACTIVE_WINDOW`; keepalive клиента тоже растит счётчик) или handshake не старше 5 с, netbird — есть Connected-пир) — жёлтый.
 
-LED пересчитывается при загрузке (`/etc/rc.local`) и раз в минуту из cron, чтобы следовать за подключением пиров. У wireguard без `persistent_keepalive` и без трафика handshake может устаревать — тогда LED вернётся в синий.
+LED пересчитывает фоновый цикл (`ACTION=daemon`, запускается из `/etc/rc.local`) каждые 5 с (`POLL_INTERVAL`). Если клиент wireguard без keepalive и без трафика, пир будет считаться неактивным — индикатор синий.
 
 ## Установка
 
