@@ -1,6 +1,6 @@
 #!/bin/sh
 # ==============================================================================
-# Cudy TR3000 — переключатель "mode" управляет одной из трёх функций (выбор
+# Cudy TR3000 — переключатель "mode" управляет одной из двух функций (выбор
 # через ACTION_MODE при установке), красный LED вместо белого статусного,
 # пока активен защитный режим:
 #
@@ -8,20 +8,12 @@
 #   ACTION_MODE=wan     — блокирует форвардинг LAN->WAN файрволом, Wi-Fi/LAN/
 #                          USB-шара остаются доступны (приватное использование
 #                          SMB-шары без выхода в интернет).
-#   ACTION_MODE=netbird — включает/выключает подключение netbird (netbird
-#                          up/down). Требует уже установленного и настроенного
-#                          netbird (пакет netbird, "netbird login --setup-key
-#                          <KEY>", сервис включён и запущен).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # Выбор режима блокировки WAN вместо Wi-Fi:
 #   ACTION_MODE=wan \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
-#
-# Выбор режима netbird вместо Wi-Fi:
-#   ACTION_MODE=netbird \
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
 # Скачивает mode-button-wifi-toggle.sh из этого репозитория и кладёт его в
@@ -74,10 +66,6 @@ if [ -n "$LED_WHITE_DIR" ]; then
     sed -i "s#^LED_WHITE_DIR=.*#LED_WHITE_DIR=\"$LED_WHITE_DIR\"#" "$TARGET"
     echo "LED_WHITE_DIR переопределён на $LED_WHITE_DIR"
 fi
-if [ -n "$NETBIRD_BIN" ]; then
-    sed -i "s#^NETBIRD_BIN=.*#NETBIRD_BIN=\"$NETBIRD_BIN\"#" "$TARGET"
-    echo "NETBIRD_BIN переопределён на $NETBIRD_BIN"
-fi
 
 # /etc/rc.button/BTN_0 — обычный файл, а не UCI-конфиг, поэтому по
 # умолчанию НЕ переживает "sysupgrade" (без -n сохраняются только файлы,
@@ -100,7 +88,3 @@ echo
 echo "Проверка режима wan вручную, без переустановки:"
 echo "  ACTION_MODE=wan ACTION=released BUTTON=BTN_0 $TARGET"
 echo "  ACTION_MODE=wan ACTION=pressed  BUTTON=BTN_0 $TARGET"
-echo
-echo "Проверка режима netbird вручную, без переустановки (требует настроенного netbird):"
-echo "  ACTION_MODE=netbird ACTION=released BUTTON=BTN_0 $TARGET"
-echo "  ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 $TARGET"

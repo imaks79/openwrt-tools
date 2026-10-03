@@ -223,7 +223,7 @@ handle_usb_button() {
 # дальше идёт строчная "c"), так что пересечения не будет. Тот же приём,
 # что и в mode-button-wifi-toggle.sh/wps-button-wifi-toggle.sh.
 netbird_is_connected() {
-    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
+    "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^(Management|Daemon status): Connected$'
 }
 
 # У кнопки reset, в отличие от флажка "mode", нет двух устойчивых положений

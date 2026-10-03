@@ -3,11 +3,10 @@
 Два физических дополнения для Cudy TR3000 (прошивка на базе OpenWrt/LuCI):
 
 - **`install-mode-button.sh`** — переключатель "mode" на корпусе управляет
-  одной из трёх функций (выбор через `ACTION_MODE` при установке): либо
+  одной из двух функций (выбор через `ACTION_MODE` при установке): либо
   включает/выключает Wi-Fi (по умолчанию), либо блокирует форвардинг
   LAN→WAN файрволом (Wi-Fi/LAN/USB-шара остаются доступны — приватное
-  использование SMB-шары без выхода в интернет), либо включает/выключает
-  подключение netbird. В защитном положении вместо белого статусного
+  использование SMB-шары без выхода в интернет). В защитном положении вместо белого статусного
   светодиода горит красный.
 - **`install-reset-button.sh`** — штатная кнопка reset совмещает по
   длительности нажатия переключение USB-накопителя (короткое, <1 сек) и
@@ -35,8 +34,7 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-t
 `smb-backend`/`cron-alert`), выбор SMB-сервера (ksmbd/samba4) — в
 [openwrt-tool/README.md](../openwrt-tool/README.md).
 
-Переключатель "mode" (Wi-Fi вкл/выкл, блокировка WAN либо netbird
-вкл/выкл) от шары не зависит — его можно ставить независимо от всего
+Переключатель "mode" (Wi-Fi вкл/выкл либо блокировка WAN) от шары не зависит — его можно ставить независимо от всего
 остального.
 
 ## Если форкаете этот проект
@@ -59,9 +57,9 @@ grep -rn '^SCRIPT_URL=' *.sh
 `/root/openwrt-tool/usb-smb-share.sh` (переменная `INSTALL_SH`) — если
 переносите и `openwrt-tool` тоже, обновите и этот путь.
 
-## Дополнительно: переключатель "mode" — Wi-Fi, блокировка WAN или netbird
+## Дополнительно: переключатель "mode" — Wi-Fi или блокировка WAN
 
-Физический флажок "mode" на Cudy TR3000 управляет одной из трёх
+Физический флажок "mode" на Cudy TR3000 управляет одной из двух
 взаимоисключающих функций — выбирается переменной `ACTION_MODE` при
 установке:
 
@@ -72,16 +70,9 @@ grep -rn '^SCRIPT_URL=' *.sh
   работать как обычно, наружу в интернет трафик не идёт. Сценарий:
   приватно попользоваться SMB-шарой через недоверенную сеть, не открывая
   маршрут наружу.
-- **`ACTION_MODE=netbird`** — включает/выключает подключение
-  [netbird](https://netbird.io/) командами `netbird up`/`netbird down`.
-  Требует уже установленного и настроенного netbird (пакет `netbird`,
-  `/etc/init.d/netbird enable && /etc/init.d/netbird start`, логин
-  `netbird login --setup-key <KEY>`) — сам демон/сервис скрипт не трогает,
-  переключает только состояние подключения. Если бинарь `netbird` не
-  найден — логирует предупреждение через `logger` и ничего не делает.
 
-В защитном положении (Wi-Fi выключен, WAN заблокирован или netbird
-отключён — в зависимости от `ACTION_MODE`) — вместо белого статусного
+В защитном положении (Wi-Fi выключен или WAN заблокирован — в
+зависимости от `ACTION_MODE`) — вместо белого статусного
 светодиода горит красный.
 
 Установка одной строкой (лучше по кабелю/LAN — см. предупреждение ниже):
@@ -94,13 +85,6 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 
 ```sh
 ACTION_MODE=wan \
-  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
-```
-
-Чтобы переключатель включал/выключал netbird вместо Wi-Fi:
-
-```sh
-ACTION_MODE=netbird \
   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 ```
 
@@ -121,10 +105,6 @@ ACTION_MODE=netbird \
 - В режиме `wan` блокируются все секции `forwarding` в
   `/etc/config/firewall`, ведущие в зону `wan` (независимо от исходной
   зоны — lan, guest и т.п.), а не только основная LAN.
-- В режиме `netbird` желаемое состояние сравнивается с реальным через
-  первую строку `netbird status` (`Daemon status: Connected` при
-  установленном соединении) — команда `netbird up`/`down` не повторяется,
-  если соединение уже в нужном состоянии.
 - Пока активен защитный режим, гаснет штатный белый светодиод
   (`white:status`, на этой прошивке горит статически, без автотриггера) и
   загорается красный (`red:power`).
@@ -156,14 +136,6 @@ ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 ```sh
 ACTION_MODE=wan ACTION=released BUTTON=BTN_0 /etc/rc.button/BTN_0
 ACTION_MODE=wan ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
-```
-
-Проверить режим `netbird`, не переустанавливая скрипт (требует уже
-настроенного netbird):
-
-```sh
-ACTION_MODE=netbird ACTION=released BUTTON=BTN_0 /etc/rc.button/BTN_0
-ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 ```
 
 ## Дополнительно: кнопка reset — USB-накопитель и netbird
@@ -243,8 +215,8 @@ ACTION_MODE=netbird ACTION=pressed  BUTTON=BTN_0 /etc/rc.button/BTN_0
 однозначного белого). После сигнала оба светодиода возвращаются к тому
 состоянию, в котором были до нажатия — это важно, если также установлен
 `mode-button-wifi-toggle.sh`: он держит `red:power` включённым, пока
-активен защитный режим (Wi-Fi выключен, WAN заблокирован или netbird
-отключён — в зависимости от `ACTION_MODE`), и кнопка reset не собьёт эту
+активен защитный режим (Wi-Fi выключен или WAN заблокирован — в
+зависимости от `ACTION_MODE`), и кнопка reset не собьёт эту
 индикацию (тот же принцип действует и для сигнала среднего нажатия ниже).
 
 **Особенность:** `swap-disk` с кнопки запускается без интерактивного
@@ -271,10 +243,9 @@ start`, логин `netbird login --setup-key <KEY>`) — сам демон/се
 
 У кнопки reset, в отличие от флажка "mode" (`install-mode-button.sh`), нет
 двух устойчивых положений — только факт нажатия, поэтому желаемое
-состояние вычисляется инверсией текущего (по первой строке `netbird
-status`: `Daemon status: Connected` при установленном соединении). Тот же
-приём, что и в `ACTION_MODE=netbird` у переключателя "mode" и у кнопки
-WPS на Cudy WR3000U.
+состояние вычисляется инверсией текущего (по `netbird status`:
+`Management: Connected` или `Daemon status: Connected` при установленном
+соединении). Тот же приём, что и у кнопки WPS на Cudy WR3000U.
 
 Результат сигнализируется теми же светодиодами, что и смена накопителя:
 успех (`netbird up`/`down` выполнился) — белый мигает 5 раз, ошибка

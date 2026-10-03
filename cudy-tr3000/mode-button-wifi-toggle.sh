@@ -1,6 +1,6 @@
 #!/bin/sh
 # Флажок "mode" на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic)
-# управляет одной из трёх взаимоисключающих функций — выбирается переменной
+# управляет одной из двух взаимоисключающих функций — выбирается переменной
 # ACTION_MODE (задаётся при установке, см. install-mode-button.sh):
 #
 #   ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi (все wifi-device из
@@ -11,13 +11,6 @@
 #     через недоверенную сеть, не открывая маршрут наружу. Интерфейс WAN не
 #     трогаем (ifdown/ifup) — так модемная/PPPoE-сессия не рвётся, включение
 #     обратно происходит мгновенно, без переподключения.
-#   ACTION_MODE=netbird — включает/выключает подключение netbird (netbird
-#     up/down). Требует уже установленного и настроенного netbird (пакет
-#     netbird, "/etc/init.d/netbird enable && /etc/init.d/netbird start",
-#     логин "netbird login --setup-key <KEY>" — сам демон/сервис не
-#     трогаем, переключаем только состояние подключения). Если бинарь
-#     "netbird" не найден — скрипт логирует предупреждение и ничего не
-#     делает.
 #
 # GPIO-метка этого переключателя в device tree — "mode" (видно в
 # /sys/kernel/debug/gpio), но модуль ядра gpio_button_hotplug строит
@@ -28,8 +21,8 @@
 #
 # Переключатель имеет два фиксированных положения, и именно положение
 # (а не факт срабатывания) определяет желаемое состояние сети:
-#   pressed  -> обычный режим  (Wi-Fi включён   / WAN разрешён  / netbird подключён)
-#   released -> защитный режим (Wi-Fi выключен  / WAN заблокирован / netbird отключён)
+#   pressed  -> обычный режим  (Wi-Fi включён   / WAN разрешён)
+#   released -> защитный режим (Wi-Fi выключен  / WAN заблокирован)
 # Если сеть уже находится в нужном состоянии, uci не трогаем — это защищает
 # от лишних перезапусков при повторных/дребезжащих событиях.
 #
@@ -58,7 +51,6 @@ LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
 
 ACTION_MODE="${ACTION_MODE:-wifi}"
-NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 
 case "${ACTION}" in
 pressed)
@@ -146,43 +138,6 @@ apply_wan_mode() {
     fi
 }
 
-# "Daemon status: Connected" — первая строка вывода "netbird status" при
-# установленном соединении (подтверждено официальной документацией
-# NetBird). Специально ищем именно "Connected" с большой буквы: у
-# состояния "Disconnected" эта подстрока не встречается ("D-i-s-c..." —
-# дальше идёт строчная "c"), так что пересечения не будет.
-netbird_is_connected() {
-    "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^(Management|Daemon status): Connected$'
-}
-
-apply_netbird_mode() {
-    if ! command -v "$NETBIRD_BIN" >/dev/null 2>&1; then
-        logger -t rc.button.mode "mode switch ${ACTION} (netbird): '$NETBIRD_BIN' не найден — сначала установите и настройте netbird (netbird login --setup-key ...), пропускаю"
-        return 0
-    fi
-
-    if netbird_is_connected; then current=0; else current=1; fi
-
-    if [ "$current" = "$blocked" ]; then
-        logger -t rc.button.mode "mode switch ${ACTION} (netbird): уже $([ "$blocked" = "1" ] && echo отключён || echo подключён), пропускаю"
-        return 0
-    fi
-
-    if [ "$blocked" = "1" ]; then
-        if out="$("$NETBIRD_BIN" down 2>&1)"; then
-            logger -t rc.button.mode "mode switch ${ACTION} (netbird): отключён (netbird down)"
-        else
-            logger -t rc.button.mode "mode switch ${ACTION} (netbird): netbird down завершился с ошибкой: $out"
-        fi
-    else
-        if out="$("$NETBIRD_BIN" up 2>&1)"; then
-            logger -t rc.button.mode "mode switch ${ACTION} (netbird): подключён (netbird up)"
-        else
-            logger -t rc.button.mode "mode switch ${ACTION} (netbird): netbird up завершился с ошибкой: $out"
-        fi
-    fi
-}
-
 led_red_on() {
     echo 0 > "${LED_WHITE_DIR}/brightness" 2>/dev/null
     [ -e "${LED_RED_DIR}/trigger" ] && echo none > "${LED_RED_DIR}/trigger" 2>/dev/null
@@ -201,9 +156,6 @@ led_red_off() {
 case "$ACTION_MODE" in
 wan)
     apply_wan_mode
-    ;;
-netbird)
-    apply_netbird_mode
     ;;
 *)
     apply_wifi_mode
