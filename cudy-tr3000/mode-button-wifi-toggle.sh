@@ -1,16 +1,6 @@
 #!/bin/sh
 # Флажок "mode" на Cudy TR3000 256MB v1 (OpenWrt 25.12.5, mediatek/filogic)
-# управляет одной из двух взаимоисключающих функций — выбирается переменной
-# ACTION_MODE (задаётся при установке, см. install-mode-button.sh):
-#
-#   ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi (все wifi-device из
-#     /etc/config/wireless), как и раньше.
-#   ACTION_MODE=wan — блокирует форвардинг LAN->WAN файрволом. Wi-Fi, LAN и
-#     USB-шара (usb-smb-share.sh) продолжают работать как обычно, наружу в
-#     интернет трафик не идёт. Сценарий: приватно попользоваться SMB-шарой
-#     через недоверенную сеть, не открывая маршрут наружу. Интерфейс WAN не
-#     трогаем (ifdown/ifup) — так модемная/PPPoE-сессия не рвётся, включение
-#     обратно происходит мгновенно, без переподключения.
+# переключает Wi-Fi (все wifi-device из /etc/config/wireless).
 #
 # GPIO-метка этого переключателя в device tree — "mode" (видно в
 # /sys/kernel/debug/gpio), но модуль ядра gpio_button_hotplug строит
@@ -21,8 +11,8 @@
 #
 # Переключатель имеет два фиксированных положения, и именно положение
 # (а не факт срабатывания) определяет желаемое состояние сети:
-#   pressed  -> обычный режим  (Wi-Fi включён   / WAN разрешён)
-#   released -> защитный режим (Wi-Fi выключен  / WAN заблокирован)
+#   pressed  -> обычный режим  (Wi-Fi включён)
+#   released -> защитный режим (Wi-Fi выключен)
 # Если сеть уже находится в нужном состоянии, uci не трогаем — это защищает
 # от лишних перезапусков при повторных/дребезжащих событиях.
 #
@@ -34,8 +24,7 @@
 # возвращает brightness=1 обратно, когда защитный режим снят.
 #
 # Установка на роутере — самый простой способ, одной строкой (см. также
-# install-mode-button.sh в этом репозитории для деталей, выбора ACTION_MODE
-# и переопределения имён LED через переменные окружения):
+# install-mode-button.sh в этом репозитории для деталей и переопределения имён LED через переменные окружения):
 #
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr3000/install-mode-button.sh | sh
 #
@@ -50,7 +39,6 @@
 LED_RED_DIR="/sys/class/leds/red:power"
 LED_WHITE_DIR="/sys/class/leds/white:status"
 
-ACTION_MODE="${ACTION_MODE:-wifi}"
 
 case "${ACTION}" in
 pressed)
@@ -94,50 +82,6 @@ apply_wifi_mode() {
     fi
 }
 
-# Блокируем/разблокируем ВСЕ секции "forwarding" в /etc/config/firewall,
-# ведущие в зону wan (dest='wan') — независимо от исходной зоны (lan,
-# guest и т.п.), чтобы защитный режим перекрывал интернет для всех, а не
-# только для основной LAN. LAN-only трафик (в т.ч. SMB-шара) идёт по
-# input/forward внутри зоны lan и этим правилом не затрагивается.
-fw_check_state() {
-    dest="$(uci -q get firewall."$1".dest)"
-    [ "$dest" = "wan" ] || return 0
-    val="$(uci -q get firewall."$1".enabled)"
-    [ -z "$val" ] && val=1
-    want=$((1 - blocked))
-    [ "$val" != "$want" ] && need_update=1
-}
-
-fw_set_state() {
-    dest="$(uci -q get firewall."$1".dest)"
-    [ "$dest" = "wan" ] || return 0
-    want=$((1 - blocked))
-    uci set firewall."$1".enabled="$want"
-}
-
-fw_reload() {
-    if command -v fw4 >/dev/null 2>&1; then
-        fw4 reload
-    else
-        /etc/init.d/firewall reload
-    fi
-}
-
-apply_wan_mode() {
-    config_load firewall
-    need_update=0
-    config_foreach fw_check_state forwarding
-
-    if [ "$need_update" = "0" ]; then
-        logger -t rc.button.mode "mode switch ${ACTION} (wan): форвардинг LAN->WAN уже в нужном состоянии, пропускаю"
-    else
-        logger -t rc.button.mode "mode switch ${ACTION} (wan): форвардинг LAN->WAN $([ "$blocked" = "1" ] && echo заблокирован || echo разблокирован)"
-        config_foreach fw_set_state forwarding
-        uci commit firewall
-        fw_reload
-    fi
-}
-
 led_red_on() {
     echo 0 > "${LED_WHITE_DIR}/brightness" 2>/dev/null
     [ -e "${LED_RED_DIR}/trigger" ] && echo none > "${LED_RED_DIR}/trigger" 2>/dev/null
@@ -153,14 +97,7 @@ led_red_off() {
     echo 1 > "${LED_WHITE_DIR}/brightness" 2>/dev/null
 }
 
-case "$ACTION_MODE" in
-wan)
-    apply_wan_mode
-    ;;
-*)
-    apply_wifi_mode
-    ;;
-esac
+apply_wifi_mode
 
 if [ "$blocked" = "1" ]; then
     led_red_on
