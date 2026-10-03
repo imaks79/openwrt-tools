@@ -1,10 +1,20 @@
 # xiaomi-ax3000t
 
-Кнопка **Mesh** на Xiaomi AX3000T (OpenWrt, MediaTek MT7981B): однократное
-нажатие включает/выключает Wi-Fi целиком (все радиомодули). Пока Wi-Fi
-выключен — горит светодиод `yellow:status` (синий гаснет; отдельного красного LED в системе нет — на реальном роутере `ls /sys/class/leds/` показывает только `blue:status` и `yellow:status`); при включении жёлтый
-гаснет, синий возвращается. Состояние переживает перезагрузку (LED
-синхронизируется при старте через `/etc/rc.local`).
+Кнопка **Mesh** на Xiaomi AX3000T (OpenWrt, MediaTek MT7981B).
+
+| Удержание | Действие |
+|---|---|
+| < 2 с | Wi-Fi вкл/выкл (все радиомодули) |
+| 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup` всех интерфейсов с таким proto) — клиенты не смогут подключиться; повторное удержание поднимает обратно |
+| ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`; netbird должен быть уже установлен и залогинен) |
+
+Индикатор (`blue:status` / `yellow:status`):
+
+- Wi-Fi выключен — оба LED погашены;
+- Wi-Fi включён, пиров нет — синий;
+- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — handshake не старше 180 с, netbird — есть Connected-пир) — жёлтый.
+
+LED пересчитывается при загрузке (`/etc/rc.local`) и раз в минуту из cron, чтобы следовать за подключением пиров. У wireguard без `persistent_keepalive` и без трафика handshake может устаревать — тогда LED вернётся в синий.
 
 ## Установка
 
@@ -15,11 +25,11 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax
 ```
 
 Кнопка Mesh в device tree — `BTN_9`, поэтому хук ставится в
-`/etc/rc.button/BTN_9`. LED определяются автоматически (`*red*` или `yellow:status`, и `*blue*`); если на вашей прошивке не подходит —
+`/etc/rc.button/BTN_9`. LED определяются автоматически (`*yellow*` и `*blue*`); если на вашей прошивке не подходит —
 проверьте `ls /sys/class/leds/` и переопределите:
 
 ```sh
-LED_RED_DIR=/sys/class/leds/<имя> LED_BLUE_DIR=/sys/class/leds/<имя> \
+LED_YELLOW_DIR=/sys/class/leds/<имя> LED_BLUE_DIR=/sys/class/leds/<имя> \
   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 ```
 

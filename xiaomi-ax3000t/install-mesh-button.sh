@@ -1,14 +1,16 @@
 #!/bin/sh
 # ==============================================================================
-# Xiaomi AX3000T — кнопка Mesh: однократное нажатие включает/выключает Wi-Fi,
-# при выключенном Wi-Fi горит светодиод yellow:status.
+# Xiaomi AX3000T — кнопка Mesh: короткое нажатие — Wi-Fi вкл/выкл, 2-5 с —
+# wireguard/amneziawg вкл/выкл, от 5 с — netbird вкл/выкл; LED: выкл (Wi-Fi
+# выключен) / синий / жёлтый (есть подключённый пир).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 #
 # Если автоопределение светодиодов не подходит (см. "ls /sys/class/leds/"):
-#   LED_RED_DIR=/sys/class/leds/<имя> LED_BLUE_DIR=/sys/class/leds/<имя> \
+#   LED_YELLOW_DIR=/sys/class/leds/<имя> LED_BLUE_DIR=/sys/class/leds/<имя> \
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
+# Нестандартный путь к netbird: NETBIRD_BIN=/usr/sbin/netbird (аналогично).
 #
 # ВНИМАНИЕ: если вы зашли по SSH через Wi-Fi — нажатие кнопки оборвёт сессию.
 # ==============================================================================
@@ -31,25 +33,40 @@ mkdir -p "$(dirname "$TARGET")"
 wget -O "$TARGET" "$SCRIPT_URL"
 chmod +x "$TARGET"
 
-if [ -n "$LED_RED_DIR" ]; then
-    sed -i "s#^LED_RED_DIR=.*#LED_RED_DIR=\"$LED_RED_DIR\"#" "$TARGET"
-    echo "LED_RED_DIR переопределён на $LED_RED_DIR"
+if [ -n "$LED_YELLOW_DIR" ]; then
+    sed -i "s#^LED_YELLOW_DIR=.*#LED_YELLOW_DIR=\"$LED_YELLOW_DIR\"#" "$TARGET"
+    echo "LED_YELLOW_DIR переопределён на $LED_YELLOW_DIR"
 fi
 if [ -n "$LED_BLUE_DIR" ]; then
     sed -i "s#^LED_BLUE_DIR=.*#LED_BLUE_DIR=\"$LED_BLUE_DIR\"#" "$TARGET"
     echo "LED_BLUE_DIR переопределён на $LED_BLUE_DIR"
 fi
 
-# Синхронизация LED при загрузке (индикатор выключенного Wi-Fi не должен
-# пропадать после перезагрузки). Вставляем перед "exit 0".
+if [ -n "$NETBIRD_BIN" ]; then
+    sed -i "s#^NETBIRD_BIN=.*#NETBIRD_BIN=\"$NETBIRD_BIN\"#" "$TARGET"
+    echo "NETBIRD_BIN переопределён на $NETBIRD_BIN"
+fi
+
+# Синхронизация LED при загрузке и раз в минуту из cron (LED следует за
+# подключением/отключением пиров). Вставляем в rc.local перед "exit 0".
 [ -f "$RC_LOCAL" ] || printf '#!/bin/sh\nexit 0\n' > "$RC_LOCAL"
 if ! grep -qF "$SYNC_LINE" "$RC_LOCAL"; then
     sed -i "/^exit 0/i (sleep 15; $SYNC_LINE) &" "$RC_LOCAL"
     echo "Добавил синхронизацию LED при загрузке в $RC_LOCAL"
 fi
 
+CRON_FILE=/etc/crontabs/root
+CRON_LINE="* * * * * $SYNC_LINE"
+touch "$CRON_FILE"
+if ! grep -qF "$SYNC_LINE" "$CRON_FILE"; then
+    echo "$CRON_LINE" >> "$CRON_FILE"
+    echo "Добавил опрос пиров раз в минуту в $CRON_FILE"
+fi
+/etc/init.d/cron enable 2>/dev/null
+/etc/init.d/cron restart 2>/dev/null
+
 [ -f "$SYSUPGRADE_CONF" ] || : > "$SYSUPGRADE_CONF"
-for f in "$TARGET" "$RC_LOCAL"; do
+for f in "$TARGET" "$RC_LOCAL" "$CRON_FILE"; do
     grep -qxF "$f" "$SYSUPGRADE_CONF" || echo "$f" >> "$SYSUPGRADE_CONF"
 done
 
