@@ -122,7 +122,7 @@ tool_has_peer() {
     "$1" show "$2" dump 2>/dev/null | awk -v now="$(date +%s)" -v win="$ACTIVE_WINDOW" \
         -v hsmax="$HANDSHAKE_MAX_AGE" -v state="$state" '
         BEGIN { while ((getline line < state) > 0) { split(line, f, " "); rx[f[1]] = f[2]; ts[f[1]] = f[3] } close(state) }
-        NF >= 8 {
+        NF == 8 {
             k = $1; hs = $5; r = $6
             if (!(k in rx)) ts[k] = 0
             else if (rx[k] != r) ts[k] = now
