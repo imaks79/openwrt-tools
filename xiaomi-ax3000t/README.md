@@ -12,9 +12,9 @@
 
 Индикатор (`blue:status` / `yellow:status`):
 
-- Wi-Fi выключен — оба LED погашены;
-- Wi-Fi включён, пиров нет — синий;
-- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — вырос счётчик принятых байт за последние 30 с (`ACTIVE_WINDOW`; keepalive клиента тоже растит счётчик) или handshake не старше 5 с, netbird — есть Connected-пир) — жёлтый.
+- есть подключённый пир (wireguard/amneziawg — вырос счётчик принятых байт за последние 30 с (`ACTIVE_WINDOW`; keepalive клиента тоже растит счётчик) или handshake не старше 5 с; netbird — есть Connected-пир) — жёлтый, независимо от Wi-Fi;
+- пиров нет, Wi-Fi включён — синий;
+- пиров нет, Wi-Fi выключен — оба LED погашены.
 
 LED пересчитывает фоновый цикл (`ACTION=daemon`, запускается из `/etc/rc.local`) каждые 5 с (`POLL_INTERVAL`). Если клиент wireguard без keepalive и без трафика, пир будет считаться неактивным — индикатор синий.
 

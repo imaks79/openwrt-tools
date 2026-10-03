@@ -12,9 +12,9 @@
 #                  уже установлен и залогинен).
 #
 # Индикация (один двухцветный индикатор: blue:status / yellow:status):
-#   Wi-Fi выключен                          — оба LED погашены;
-#   Wi-Fi включён, пиров нет                — горит синий;
-#   Wi-Fi включён, есть подключённый пир    — горит жёлтый.
+#   есть подключённый пир (Wi-Fi не важен)  — горит жёлтый;
+#   пиров нет, Wi-Fi включён                — горит синий;
+#   пиров нет, Wi-Fi выключен               — оба LED погашены.
 # Пир считается подключённым, если: у wireguard/amneziawg-интерфейса
 # вырос счётчик принятых байт за последние ACTIVE_WINDOW секунд (по умолчанию
 # 30; keepalive клиента тоже растит счётчик) либо handshake не старше
@@ -227,15 +227,15 @@ blink_blue_twice() {
 }
 
 apply_led() {
-    if ! wifi_is_on; then
-        led_off "$LED_BLUE_DIR"
-        led_off "$LED_YELLOW_DIR"
-    elif vpn_has_peer || netbird_has_peer; then
+    if vpn_has_peer || netbird_has_peer; then
         led_off "$LED_BLUE_DIR"
         led_on "$LED_YELLOW_DIR"
-    else
+    elif wifi_is_on; then
         led_off "$LED_YELLOW_DIR"
         led_on "$LED_BLUE_DIR"
+    else
+        led_off "$LED_BLUE_DIR"
+        led_off "$LED_YELLOW_DIR"
     fi
 }
 
