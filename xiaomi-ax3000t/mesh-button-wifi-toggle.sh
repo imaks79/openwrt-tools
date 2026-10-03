@@ -7,6 +7,7 @@
 #                  (ifdown/ifup всех uci-интерфейсов с proto wireguard/amneziawg),
 #                  чтобы клиенты не могли подключиться; повторное удержание
 #                  поднимает их обратно;
+#   (после успешного ОТКЛЮЧЕНИЯ VPN/netbird синий LED моргает два раза)
 #   >= 5 с       — то же для netbird (netbird down/up; сам netbird должен быть
 #                  уже установлен и залогинен).
 #
@@ -129,7 +130,9 @@ toggle_vpn() {
     any_up=0
     for i in $all; do iface_is_up "$i" && any_up=1; done
     if [ "$any_up" = "1" ]; then
-        for i in $all; do ifdown "$i"; done
+        down_ok=1
+        for i in $all; do ifdown "$i" || down_ok=0; done
+        [ "$down_ok" = "1" ] && blink_done=1
         logger -t rc.button.mesh "mesh: wireguard/amneziawg отключены:$all"
     else
         for i in $all; do ifup "$i"; done
@@ -161,6 +164,7 @@ toggle_netbird() {
     if netbird_is_connected; then
         if out="$("$NETBIRD_BIN" down 2>&1)"; then
             logger -t rc.button.mesh "mesh: netbird отключён"
+            blink_done=1
         else
             logger -t rc.button.mesh "mesh: netbird down завершился с ошибкой: $out"
         fi
@@ -174,6 +178,18 @@ toggle_netbird() {
 }
 
 # ---------------- LED ----------------
+
+# два синих моргания — подтверждение успешного отключения VPN/netbird
+blink_blue_twice() {
+    led_off "$LED_YELLOW_DIR"
+    for _ in 1 2; do
+        led_off "$LED_BLUE_DIR"
+        sleep 0.3
+        led_on "$LED_BLUE_DIR"
+        sleep 0.3
+    done
+    led_off "$LED_BLUE_DIR"
+}
 
 apply_led() {
     if ! wifi_is_on; then
@@ -199,4 +215,5 @@ if [ "$ACTION" = "released" ]; then
     fi
 fi
 
+[ "$blink_done" = "1" ] && blink_blue_twice
 apply_led

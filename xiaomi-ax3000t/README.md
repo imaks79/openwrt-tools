@@ -8,6 +8,8 @@
 | 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup` всех интерфейсов с таким proto) — клиенты не смогут подключиться; повторное удержание поднимает обратно |
 | ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`; netbird должен быть уже установлен и залогинен) |
 
+После успешного **отключения** wireguard/amneziawg или netbird синий LED моргает два раза.
+
 Индикатор (`blue:status` / `yellow:status`):
 
 - Wi-Fi выключен — оба LED погашены;
