@@ -152,7 +152,7 @@ apply_wan_mode() {
 # состояния "Disconnected" эта подстрока не встречается ("D-i-s-c..." —
 # дальше идёт строчная "c"), так что пересечения не будет.
 netbird_is_connected() {
-    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
+    "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^(Management|Daemon status): Connected$'
 }
 
 apply_netbird_mode() {

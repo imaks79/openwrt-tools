@@ -1,428 +1,143 @@
 #!/bin/sh
-# Кнопка WPS на Cudy WR3000U совмещает две функции по длительности нажатия
-# (вместо запуска настоящего WPS-подключения):
+# Кнопка WPS на Cudy WR3000U (хук /etc/rc.button/wps) вместо запуска WPS
+# переключает по длительности удержания (SEEN — секунды, приходит при
+# "released"):
+#   < 2 с        — Wi-Fi вкл/выкл (все радиомодули);
+#   >= 2, < 5 с  — wireguard и amneziawg вкл/выкл (ifdown/ifup всех
+#                  uci-интерфейсов с proto wireguard/amneziawg), чтобы
+#                  клиенты не могли подключиться; повторное удержание
+#                  поднимает их обратно;
+#   >= 5 с       — netbird вкл/выкл (netbird down/up; netbird должен быть
+#                  уже установлен и залогинен).
 #
-#   - короткое нажатие (< 5 сек, ACTION=released, SEEN<5) — в зависимости
-#     от ACTION_MODE (задаётся при установке, см. install-wps-button.sh):
-#       ACTION_MODE=wifi (по умолчанию) — переключает Wi-Fi целиком (оба
-#         диапазона разом) и синхронно зажигает/гасит два диапазонных LED
-#         панели (2.4 ГГц/5 ГГц);
-#       ACTION_MODE=wan — блокирует/разблокирует форвардинг LAN->WAN
-#         файрволом, оставляя Wi-Fi/LAN/USB-шару доступными (приватное
-#         использование SMB-шары без выхода в интернет), индикация через
-#         red:fault (штатно означает "Internet offline" — семантически
-#         подходит);
-#       ACTION_MODE=netbird — включает/выключает подключение netbird
-#         (netbird up/down), индикация через два диапазонных LED разом
-#         (те же, что заняты в режиме wifi — свободны, пока выбран этот
-#         режим). Требует уже установленного и настроенного netbird.
-#   - долгое нажатие (>= 5 сек, SEEN>=5) — ведёт себя так же, как ручной
-#     запуск "OPENWRT_TOOL_MODE=swap-disk sh usb-smb-share.sh": безопасно
-#     размонтирует текущий накопитель (если смонтирован), затем до 60 сек
-#     ищет физически подключённый USB-раздел и монтирует его (WR3000U
-#     аппаратно имеет USB-порт — xhci/usb_phy включены в device tree,
-#     mt7981b-cudy-wbr3000uax-v1.dtsi), чтобы не заходить по SSH ради
-#     размонтирования перед извлечением флешки или подключения новой.
-#     Не зависит от ACTION_MODE — работает всегда.
+# Светодиоды сознательно НЕ используются: на этой модели они все заняты
+# штатными индикаторами системы (см. README.md).
 #
-# GPIO-кнопка "wps" в device tree Cudy WR3000U (mt7981b-cudy-wr3000-nand.dtsi)
-# объявлена с linux,code = KEY_WPS_BUTTON. Модуль ядра button-hotplug
-# переводит этот код в переменную окружения BUTTON="wps" (таблица в
-# package/kernel/button-hotplug/src/button-hotplug.c), поэтому хук должен
-# называться /etc/rc.button/wps.
-#
-# Длительность нажатия читается из SEEN — модуль button-hotplug добавляет
-# эту переменную к КАЖДОМУ событию (pressed/released) как число полных
-# секунд с предыдущего события для этой кнопки (button-hotplug.c: "seen =
-# jiffies", "(seen - priv->seen[btn]) / HZ"), поэтому отдельно обрабатывать
-# ACTION=pressed/timeout не нужно — вся логика по факту отпускания.
-#
-# === Короткое нажатие: Wi-Fi (ACTION_MODE=wifi, по умолчанию) ===
-#
-# У кнопки WPS, в отличие от флажка "mode" на Cudy TR3000, нет двух
-# устойчивых положений — только "нажата"/"отпущена". Поэтому желаемое
-# состояние сети нельзя прочитать из положения кнопки, оно вычисляется
-# инверсией текущего: если ХОТЯ БЫ ОДНА секция wifi-device сейчас включена
-# (disabled=0) — выключаем все; если все уже выключены — включаем все.
-#
-# Соответствие диапазон -> LED берётся из "option band '2g'/'5g'" секций
-# wireless.radioN в /etc/config/wireless (стандартное поле в OpenWrt
-# 21.02+), а не из порядка radio0/radio1 — так правильное соответствие
-# сохраняется, даже если в конкретной сборке порядок радиомодулей другой.
-#
-# Имена светодиодов blue:wlan-2ghz / blue:wlan-5ghz подтверждены командой
-# "ls /sys/class/leds/" на реальном Cudy WR3000U (OpenWrt) — несмотря на
-# то, что физически на панели диапазонные индикаторы могут восприниматься
-# как красные, в системе они зарегистрированы именно под этими именами
-# (совпадает с upstream device tree, mt7981b-cudy-wbr3000uax-v1.dtsi).
-# Если на вашей прошивке имена отличаются — проверьте "ls /sys/class/leds/"
-# и переопределите (см. install-wps-button.sh).
-#
-# === Короткое нажатие: блокировка WAN (ACTION_MODE=wan) ===
-#
-# Альтернатива Wi-Fi-переключателю: короткое нажатие блокирует/снимает
-# блокировку форвардинга LAN->WAN файрволом (см. подробное объяснение того
-# же механизма в mode-button-wifi-toggle.sh на Cudy TR3000). Wi-Fi, LAN и
-# USB-шара продолжают работать — удобно приватно попользоваться SMB-шарой
-# через недоверенную сеть без выхода в интернет. Желаемое состояние также
-# вычисляется инверсией текущего (по наличию хотя бы одного включённого
-# forwarding-правила в зону wan).
-#
-# Индикация — светодиод red:fault. Штатно эта секция system.led_internet_off
-# управляется системой автоматически по факту реальной связи с интернетом;
-# в режиме ACTION_MODE=wan скрипт временно берёт её под ручное управление
-# (trigger=none) на время, пока блокировка активна — семантически LED и
-# означает именно "интернета нет", так что подмена смысла минимальна. В
-# режиме ACTION_MODE=wifi этот LED не трогается вообще, автоматика работает
-# как обычно.
-#
-# ВНИМАНИЕ: на бюджетной 256MB-ревизии этой платы red:fault при ручной
-# проверке (тот же приём echo/trigger=none) физически не отреагировал —
-# судя по всему, объявлен в device tree, но не распаян (см. README.md,
-# раздел "Про красные диапазонные LED"). Сама блокировка WAN при этом
-# работает штатно, просто без светового сигнала — проверяйте logread
-# (тег rc.button.wps), если LED не загорается.
-#
-# === Короткое нажатие: netbird (ACTION_MODE=netbird) ===
-#
-# Включает/выключает подключение netbird командами "netbird up"/"netbird
-# down" (демон/сервис не трогаем — предполагается, что уже запущен и
-# залогинен через "netbird login --setup-key <KEY>"). Желаемое состояние
-# вычисляется инверсией текущего — по первой строке "netbird status"
-# ("Daemon status: Connected" при установленном соединении; специально
-# ищем это слово с большой буквы — у "Disconnected" эта подстрока не
-# встречается, дальше идёт строчная "c", так что пересечения не будет).
-# Если бинарь "netbird" не найден в PATH — логируется предупреждение и
-# ничего не делается (без ошибок).
-#
-# Индикация — оба диапазонных LED (blue:wlan-2ghz/5ghz) разом: горят, пока
-# netbird ОТКЛЮЧЁН, гаснут при подключении. В этом режиме сам Wi-Fi этой
-# кнопкой не переключается, поэтому LED свободны для другого смысла;
-# реальное состояние радио они больше не отражают.
-#
-# === Долгое нажатие: USB-накопитель ===
-#
-# Требует, чтобы сетевая USB-шара уже была настроена универсальным
-# скриптом openwrt-tool/usb-smb-share.sh из этого репозитория:
-#   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh
-#
-# Точка монтирования читается из той же UCI-секции, которую настраивает
-# usb-smb-share.sh (fstab.usbmount.target) — если её нет, используется
-# /mnt/usb1 по умолчанию. Каждое долгое нажатие выполняет ровно то же
-# самое, что и ручной запуск "OPENWRT_TOOL_MODE=swap-disk sh
-# usb-smb-share.sh" по SSH: текущий накопитель сначала безопасно
-# размонтируется (если сейчас смонтирован), затем до 60 секунд идёт поиск
-# нового подключённого USB-раздела, и, если он найден, — монтируется.
-# Если usb-smb-share.sh ещё не устанавливался на этом роутере — долгое
-# нажатие просто логирует предупреждение через logger и ничего не делает
-# (без ошибок и без попытки что-то смонтировать вслепую).
-#
-# swap-disk сам игнорирует прежний физический накопитель при поиске нового
-# (по UUID всех его разделов, а не по букве устройства — подробности в
-# usb-smb-share.sh) — поэтому повторное долгое нажатие без физической
-# замены накопителя не монтирует его обратно мгновенно, а честно ждёт до
-# 60 секунд появления действительно другого устройства и завершается
-# ошибкой, если его не нашлось (сам накопитель при этом уже безопасно
-# отмонтирован первым нажатием). Не требует интернета, если драйвер под
-# файловую систему накопителя уже установлен. При нескольких разделах на
-# одном накопителе (например, Ventoy: основной раздел + маленький EFI)
-# автоматически выбирается раздел наибольшего размера — интерактивного
-# терминала для выбора у кнопки нет.
-#
-# Защита от повторного/прерванного нажатия: пока swap-disk уже выполняется
-# (в т.ч. на этапе ожидания накопителя), повторное долгое нажатие НЕ
-# запускает второй параллельный процесс — игнорируется с записью в лог.
-# Если предыдущий запуск был прерван (reboot, kill) и оставил "осиротевший"
-# лок — следующее нажатие само обнаруживает, что процесс с тем PID уже не
-# выполняется, снимает лок и продолжает как обычно.
-#
-# Визуальной LED-сигнализации результата долгого нажатия сознательно нет
-# (только logger, см. ниже). Проверялась идея мигать red:wps — физически
-# это тот же светодиод, что и blue:lan, но, как выяснилось из
-# "uci show system", red:wps в этой прошивке — не свободный канал, а
-# штатный индикатор "LAN offline" (secция system.led_lan_off, default=1,
-# в паре с system.led_lan/blue:lan на netdev-триггере). Аналогично
-# red:fault = system.led_internet_off ("Internet offline"). Мигать ими
-# ради статуса USB означало бы визуально имитировать "пропал линк" —
-# вводит в заблуждение сильнее, чем просто отсутствие индикации. Свободных
-# LED под это на данной модели нет: blue:wlan-2ghz/5ghz уже заняты
-# переключателем Wi-Fi выше. Статус смотрите через logread (тег
-# rc.button.wps) или "OPENWRT_TOOL_MODE=status"/"smbstatus".
-#
-# Установка на роутере — см. install-wps-button.sh в этом репозитории.
-#
-# ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi (а не по кабелю/LAN) —
-# короткое нажатие может выключить Wi-Fi и оборвать вашу же SSH-сессию.
-# Тестируйте и устанавливайте по кабелю.
+# GPIO-кнопка "wps" в device tree объявлена с linux,code = KEY_WPS_BUTTON;
+# button-hotplug переводит её в BUTTON="wps", поэтому хук называется
+# /etc/rc.button/wps. Желаемое состояние вычисляется инверсией текущего.
 
 . /lib/functions.sh
 
-LED_2G_DIR="/sys/class/leds/blue:wlan-2ghz"
-LED_5G_DIR="/sys/class/leds/blue:wlan-5ghz"
-LED_FAULT_DIR="/sys/class/leds/red:fault"
-
-ACTION_MODE="${ACTION_MODE:-wifi}"
 NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
-
-USB_LONG_PRESS_SECONDS=5
-USB_INSTALL_SH="/root/openwrt-tool/usb-smb-share.sh"
-USB_INSTALL_LOG="/root/openwrt-tool/wps-button-swap-disk.log"
-
-# /var на OpenWrt — tmpfs (обычно симлинк на /tmp), переживает процесс, но не
-# перезагрузку — после ребута "осиротевших" локов от предыдущей загрузки уже
-# не будет, разбираться с ними не придётся.
-USB_LOCK_DIR="/var/run/wps-button-usb-toggle.lock.d"
+NETBIRD_TIMEOUT="${NETBIRD_TIMEOUT:-20}"
 
 [ "$ACTION" = "released" ] || exit 0
 
-usb_mount_point() {
-    mp="$(uci -q get fstab.usbmount.target)"
-    [ -z "$mp" ] && mp="/mnt/usb1"
-    echo "$mp"
-}
+# ---------------- Wi-Fi ----------------
 
-# mkdir атомарен — на нём построена защита от гонки, если долгое нажатие
-# каким-то образом обработается дважды почти одновременно. Если лок уже
-# занят — проверяем, жив ли ещё процесс, который его держит (kill -0). Жив —
-# swap-disk от предыдущего нажатия действительно ещё выполняется (например,
-# ждёт накопитель в find_usb_partition) — отказываем. Процесса с таким PID
-# больше нет — это "осиротевший" лок от прерванного запуска (процесс убили,
-# роутер перезагрузился посреди ожидания) — снимаем его сами и продолжаем,
-# без необходимости заходить по SSH.
-usb_acquire_lock() {
-    if mkdir "$USB_LOCK_DIR" 2>/dev/null; then
-        echo "$$" > "$USB_LOCK_DIR/pid"
-        return 0
-    fi
-
-    lock_pid="$(cat "$USB_LOCK_DIR/pid" 2>/dev/null)"
-    if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
-        return 1
-    fi
-
-    logger -t rc.button.wps "wps долгое нажатие: найден осиротевший лок (pid ${lock_pid:-?} уже не выполняется) — снимаю его и продолжаю"
-    rm -rf "$USB_LOCK_DIR"
-    mkdir "$USB_LOCK_DIR" 2>/dev/null
-    echo "$$" > "$USB_LOCK_DIR/pid"
-    return 0
-}
-
-# Снимает лок, только если он всё ещё принадлежит ЭТОМУ процессу, и
-# вызывается через trap при любом завершении (в т.ч. по сигналу), чтобы не
-# оставлять лок висеть навечно после аварийного прерывания.
-usb_release_lock() {
-    [ -f "$USB_LOCK_DIR/pid" ] || return 0
-    [ "$(cat "$USB_LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$USB_LOCK_DIR"
-}
-trap usb_release_lock EXIT INT TERM
-
-# Каждое долгое нажатие ведёт себя как полноценный "swap-disk": безопасно
-# отмонтирует текущий накопитель (если смонтирован) и до 60 сек ждёт
-# действительно ДРУГОЙ накопитель, чтобы его смонтировать (swap-disk сам
-# игнорирует прежний физический диск по UUID при поиске — см. комментарий
-# наверху файла). LED-сигнализации результата нет (см. комментарий наверху
-# про red:wps/red:fault) — статус только через logger/logread.
-handle_usb_toggle() {
-    if [ ! -x "$USB_INSTALL_SH" ]; then
-        logger -t rc.button.wps "wps долгое нажатие: $USB_INSTALL_SH не найден — сначала настройте USB-шару (openwrt-tool/usb-smb-share.sh), пропускаю"
-        return 0
-    fi
-
-    if ! usb_acquire_lock; then
-        logger -t rc.button.wps "wps долгое нажатие: swap-disk от предыдущего нажатия ещё выполняется (возможно, ждёт накопитель — до 60 сек) — игнорирую повторное нажатие"
-        return 0
-    fi
-
-    mp="$(usb_mount_point)"
-    logger -t rc.button.wps "wps долгое нажатие: запускаю swap-disk — $mp будет безопасно отмонтирован (если сейчас смонтирован), затем до 60 сек идёт поиск нового накопителя"
-
-    if OPENWRT_TOOL_MODE=swap-disk sh "$USB_INSTALL_SH" >>"$USB_INSTALL_LOG" 2>&1; then
-        logger -t rc.button.wps "wps долгое нажатие: swap-disk успешно смонтировал накопитель"
-    else
-        logger -t rc.button.wps "wps долгое нажатие: swap-disk не смонтировал накопитель (если хотели просто извлечь старый без замены — это ожидаемо; если хотели подключить новый — см. $USB_INSTALL_LOG и dmesg)"
-    fi
-}
-
-if [ "${SEEN:-0}" -ge "$USB_LONG_PRESS_SECONDS" ] 2>/dev/null; then
-    handle_usb_toggle
-    exit 0
-fi
-
-# Блокируем/разблокируем ВСЕ секции "forwarding" в /etc/config/firewall,
-# ведущие в зону wan (dest='wan') — независимо от исходной зоны (lan,
-# guest и т.п.). LAN-only трафик (в т.ч. SMB-шара) идёт по input/forward
-# внутри зоны lan и этим правилом не затрагивается.
-fw_check_any_enabled() {
-    dest="$(uci -q get firewall."$1".dest)"
-    [ "$dest" = "wan" ] || return 0
-    val="$(uci -q get firewall."$1".enabled)"
-    [ -z "$val" ] && val=1
-    [ "$val" = "1" ] && any_fw_enabled=1
-}
-
-fw_set_enabled() {
-    dest="$(uci -q get firewall."$1".dest)"
-    [ "$dest" = "wan" ] || return 0
-    uci set firewall."$1".enabled="$new_fw_enabled"
-}
-
-fw_reload() {
-    if command -v fw4 >/dev/null 2>&1; then
-        fw4 reload
-    else
-        /etc/init.d/firewall reload
-    fi
-}
-
-led_fault_on() {
-    [ -e "${LED_FAULT_DIR}/trigger" ] && echo none > "${LED_FAULT_DIR}/trigger" 2>/dev/null
-    if [ -e "${LED_FAULT_DIR}/max_brightness" ]; then
-        cat "${LED_FAULT_DIR}/max_brightness" > "${LED_FAULT_DIR}/brightness" 2>/dev/null
-    else
-        echo 1 > "${LED_FAULT_DIR}/brightness" 2>/dev/null
-    fi
-}
-
-led_fault_off() {
-    echo 0 > "${LED_FAULT_DIR}/brightness" 2>/dev/null
-}
-
-# По умолчанию в device tree у диапазонных LED trigger=phy0tpt/phy1tpt
-# (мигание по трафику), поэтому просто "brightness>0" недостаточно —
-# сначала явно отключаем trigger, иначе драйвер тут же перезапишет
-# brightness обратно.
-led_on() {
-    dir="$1"
-    [ -e "$dir/trigger" ] && echo none > "$dir/trigger" 2>/dev/null
-    if [ -e "$dir/max_brightness" ]; then
-        cat "$dir/max_brightness" > "$dir/brightness" 2>/dev/null
-    else
-        echo 1 > "$dir/brightness" 2>/dev/null
-    fi
-}
-
-led_off() {
-    dir="$1"
-    echo 0 > "$dir/brightness" 2>/dev/null
-}
-
-handle_wan_toggle() {
-    config_load firewall
-
-    any_fw_enabled=0
-    config_foreach fw_check_any_enabled forwarding
-
-    if [ "$any_fw_enabled" = "1" ]; then
-        new_fw_enabled=0
-    else
-        new_fw_enabled=1
-    fi
-
-    config_foreach fw_set_enabled forwarding
-    uci commit firewall
-    fw_reload
-
-    if [ "$new_fw_enabled" = "0" ]; then
-        led_fault_on
-        logger -t rc.button.wps "wps короткое нажатие (wan): форвардинг LAN->WAN заблокирован"
-    else
-        led_fault_off
-        logger -t rc.button.wps "wps короткое нажатие (wan): форвардинг LAN->WAN разблокирован"
-    fi
-}
-
-# "Daemon status: Connected" — первая строка вывода "netbird status" при
-# установленном соединении (подтверждено официальной документацией
-# NetBird). Ищем именно "Connected" с большой буквы: у "Disconnected"
-# эта подстрока не встречается ("D-i-s-c..." — дальше строчная "c"), так
-# что пересечения не будет.
-netbird_is_connected() {
-    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
-}
-
-handle_netbird_toggle() {
-    if ! command -v "$NETBIRD_BIN" >/dev/null 2>&1; then
-        logger -t rc.button.wps "wps короткое нажатие (netbird): '$NETBIRD_BIN' не найден — сначала установите и настройте netbird (netbird login --setup-key ...), пропускаю"
-        return 0
-    fi
-
-    if netbird_is_connected; then
-        if out="$("$NETBIRD_BIN" down 2>&1)"; then
-            led_on "$LED_2G_DIR"
-            led_on "$LED_5G_DIR"
-            logger -t rc.button.wps "wps короткое нажатие (netbird): отключён (netbird down)"
-        else
-            logger -t rc.button.wps "wps короткое нажатие (netbird): netbird down завершился с ошибкой: $out"
-        fi
-    else
-        if out="$("$NETBIRD_BIN" up 2>&1)"; then
-            led_off "$LED_2G_DIR"
-            led_off "$LED_5G_DIR"
-            logger -t rc.button.wps "wps короткое нажатие (netbird): подключён (netbird up)"
-        else
-            logger -t rc.button.wps "wps короткое нажатие (netbird): netbird up завершился с ошибкой: $out"
-        fi
-    fi
-}
-
-case "$ACTION_MODE" in
-wan)
-    handle_wan_toggle
-    exit 0
-    ;;
-netbird)
-    handle_netbird_toggle
-    exit 0
-    ;;
-esac
-
-led_dir_for_band() {
-    case "$1" in
-        2g) echo "$LED_2G_DIR" ;;
-        5g) echo "$LED_5G_DIR" ;;
-        *) echo "" ;;
-    esac
-}
-
-# Сводное текущее состояние: включена ли хоть одна секция wifi-device.
 wifi_check_any_enabled() {
     val="$(uci -q get wireless."$1".disabled)"
     [ -z "$val" ] && val=0
     [ "$val" = "0" ] && any_enabled=1
 }
 
-# Желаемое новое состояние — инверсия сводного: если хоть один радио был
-# включён, выключаем все; если все были выключены, включаем все.
-wifi_set_and_led() {
-    section="$1"
-    uci set wireless."$section".disabled="$new_disabled"
+wifi_set_disabled() {
+    uci set wireless."$1".disabled="$new_disabled"
+}
 
-    band="$(uci -q get wireless."$section".band)"
-    dir="$(led_dir_for_band "$band")"
-    [ -n "$dir" ] || return 0
+wifi_is_on() {
+    any_enabled=0
+    config_load wireless
+    config_foreach wifi_check_any_enabled wifi-device
+    [ "$any_enabled" = "1" ]
+}
 
-    if [ "$new_disabled" = "0" ]; then
-        led_on "$dir"
+toggle_wifi() {
+    if wifi_is_on; then new_disabled=1; else new_disabled=0; fi
+    config_load wireless
+    config_foreach wifi_set_disabled wifi-device
+    uci commit wireless
+    wifi reload
+    logger -t rc.button.wps "wps: Wi-Fi $([ "$new_disabled" = "1" ] && echo выключен || echo включён)"
+}
+
+# ---------------- wireguard / amneziawg ----------------
+
+vpn_collect() {
+    proto="$(uci -q get network."$1".proto)"
+    case "$proto" in
+        wireguard) vpn_wg="$vpn_wg $1" ;;
+        amneziawg) vpn_awg="$vpn_awg $1" ;;
+    esac
+}
+
+vpn_load() {
+    vpn_wg=""
+    vpn_awg=""
+    config_load network
+    config_foreach vpn_collect interface
+}
+
+iface_is_up() {
+    [ "$(ifstatus "$1" 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)" = "true" ]
+}
+
+toggle_vpn() {
+    vpn_load
+    all="$vpn_wg $vpn_awg"
+    if [ -z "$(echo $all)" ]; then
+        logger -t rc.button.wps "wps: wireguard/amneziawg интерфейсов в /etc/config/network нет, пропускаю"
+        return 0
+    fi
+    any_up=0
+    for i in $all; do iface_is_up "$i" && any_up=1; done
+    if [ "$any_up" = "1" ]; then
+        for i in $all; do ifdown "$i"; done
+        logger -t rc.button.wps "wps: wireguard/amneziawg отключены:$all"
     else
-        led_off "$dir"
+        for i in $all; do ifup "$i"; done
+        logger -t rc.button.wps "wps: wireguard/amneziawg включены:$all"
     fi
 }
 
-config_load wireless
+# ---------------- netbird ----------------
 
-any_enabled=0
-config_foreach wifi_check_any_enabled wifi-device
+netbird_present() {
+    command -v "$NETBIRD_BIN" >/dev/null 2>&1
+}
 
-if [ "$any_enabled" = "1" ]; then
-    new_disabled=1
+# Новые версии netbird (0.78) не печатают "Daemon status:", поэтому смотрим
+# на "Management: Connected"; старый формат тоже поддерживаем.
+netbird_is_connected() {
+    "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^(Management|Daemon status): Connected$'
+}
+
+# netbird up/down с ограничением по времени: без логина "netbird up" ждёт
+# SSO-вход в браузере и иначе висел бы минутами
+netbird_run() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$NETBIRD_TIMEOUT" "$NETBIRD_BIN" "$1" 2>&1
+    else
+        "$NETBIRD_BIN" "$1" 2>&1
+    fi
+}
+
+toggle_netbird() {
+    if ! netbird_present; then
+        logger -t rc.button.wps "wps: '$NETBIRD_BIN' не найден — сначала установите и настройте netbird, пропускаю"
+        return 0
+    fi
+    if netbird_is_connected; then
+        if out="$(netbird_run down)"; then
+            logger -t rc.button.wps "wps: netbird отключён"
+        else
+            logger -t rc.button.wps "wps: netbird down завершился с ошибкой: $out"
+        fi
+    else
+        if out="$(netbird_run up)"; then
+            logger -t rc.button.wps "wps: netbird подключён"
+        else
+            logger -t rc.button.wps "wps: netbird up не завершился за ${NETBIRD_TIMEOUT}с или упал (если не залогинен — выполните вход по SSH: netbird up --setup-key <KEY>): $out"
+        fi
+    fi
+}
+
+seen="${SEEN:-0}"
+if [ "$seen" -ge 5 ] 2>/dev/null; then
+    toggle_netbird
+elif [ "$seen" -ge 2 ] 2>/dev/null; then
+    toggle_vpn
 else
-    new_disabled=0
+    toggle_wifi
 fi
-
-config_foreach wifi_set_and_led wifi-device
-uci commit wireless
-wifi up
-
-logger -t rc.button.wps "wps короткое нажатие: wireless disabled=$new_disabled (оба диапазона)"
-
-exit 0

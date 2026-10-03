@@ -1,49 +1,23 @@
 #!/bin/sh
 # ==============================================================================
-# Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения совмещает две
-# функции по длительности нажатия:
-#   - короткое (< 5 сек) — в зависимости от ACTION_MODE:
-#       ACTION_MODE=wifi (по умолчанию) — Wi-Fi вкл/выкл (оба диапазона
-#         разом) + два диапазонных LED на панели (2.4 ГГц / 5 ГГц);
-#       ACTION_MODE=wan — блокирует/разблокирует форвардинг LAN->WAN
-#         файрволом (Wi-Fi/LAN/USB-шара остаются доступны — приватное
-#         использование SMB-шары без выхода в интернет), индикация через
-#         red:fault.
-#       ACTION_MODE=netbird — включает/выключает подключение netbird
-#         (netbird up/down), индикация через оба диапазонных LED разом.
-#         Требует уже установленного и настроенного netbird.
-#   - долгое (>= 5 сек)  — безопасно монтирует/размонтирует USB-накопитель
-#     (требует, чтобы шара уже была настроена openwrt-tool/usb-smb-share.sh);
-#     не зависит от ACTION_MODE.
+# Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения переключает по
+# длительности удержания:
+#   - < 2 сек        — Wi-Fi вкл/выкл (все радиомодули);
+#   - от 2 до 5 сек  — wireguard и amneziawg вкл/выкл (ifdown/ifup), чтобы
+#                      клиенты не могли подключиться; повторно — обратно;
+#   - от 5 сек       — netbird вкл/выкл (netbird down/up; требует уже
+#                      установленного и залогиненного netbird).
+# Светодиоды не используются (на этой модели все заняты системой).
 #
 # Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
-# Выбор режима блокировки WAN вместо Wi-Fi для короткого нажатия:
-#   ACTION_MODE=wan \
+# Если бинарь netbird лежит не в PATH:
+#   NETBIRD_BIN=/usr/sbin/netbird \
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
-# Выбор режима netbird вместо Wi-Fi для короткого нажатия:
-#   ACTION_MODE=netbird \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
-#
-# Скачивает wps-button-wifi-toggle.sh из этого репозитория и кладёт его в
-# /etc/rc.button/wps — так называется хук, который procd вызывает на
-# каждое физическое нажатие кнопки WPS (модуль ядра button-hotplug
-# переводит linux,code=KEY_WPS_BUTTON в переменную BUTTON="wps" —
-# подробности в комментариях самого файла).
-#
-# Имена светодиодов blue:wlan-2ghz / blue:wlan-5ghz подтверждены командой
-# "ls /sys/class/leds/" на реальном Cudy WR3000U (OpenWrt). Если на вашей
-# прошивке имена отличаются — проверьте на роутере:
-#   ls /sys/class/leds/
-# и при необходимости переопределите перед установкой:
-#   LED_2G_DIR=/sys/class/leds/<имя> LED_5G_DIR=/sys/class/leds/<имя> \
-#     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
-#
-# ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi (а не по кабелю/LAN) —
-# нажатие кнопки может выключить Wi-Fi и оборвать вашу же SSH-сессию
-# вместе с сетью. Тестируйте и устанавливайте по кабелю.
+# ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi — нажатие кнопки может
+# выключить Wi-Fi и оборвать вашу сессию. Тестируйте и устанавливайте по кабелю.
 # ==============================================================================
 
 set -e
@@ -52,9 +26,6 @@ TARGET=/etc/rc.button/wps
 SCRIPT_URL="https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/wps-button-wifi-toggle.sh"
 SYSUPGRADE_CONF=/etc/sysupgrade.conf
 
-# Если на роутере уже есть штатный /etc/rc.button/wps (например, для
-# реальной WPS-функциональности) — сохраняем его копию, чтобы не потерять
-# оригинальную логику безвозвратно.
 if [ -f "$TARGET" ] && [ ! -f "$TARGET.orig" ]; then
     cp "$TARGET" "$TARGET.orig"
     echo "Существующий $TARGET сохранён как $TARGET.orig"
@@ -65,31 +36,11 @@ mkdir -p "$(dirname "$TARGET")"
 wget -O "$TARGET" "$SCRIPT_URL"
 chmod +x "$TARGET"
 
-if [ -n "$ACTION_MODE" ]; then
-    sed -i "s#ACTION_MODE:-wifi}#ACTION_MODE:-$ACTION_MODE}#" "$TARGET"
-    echo "ACTION_MODE переопределён на $ACTION_MODE (по умолчанию в установленном файле)"
-fi
-if [ -n "$LED_2G_DIR" ]; then
-    sed -i "s#^LED_2G_DIR=.*#LED_2G_DIR=\"$LED_2G_DIR\"#" "$TARGET"
-    echo "LED_2G_DIR переопределён на $LED_2G_DIR"
-fi
-if [ -n "$LED_5G_DIR" ]; then
-    sed -i "s#^LED_5G_DIR=.*#LED_5G_DIR=\"$LED_5G_DIR\"#" "$TARGET"
-    echo "LED_5G_DIR переопределён на $LED_5G_DIR"
-fi
-if [ -n "$LED_FAULT_DIR" ]; then
-    sed -i "s#^LED_FAULT_DIR=.*#LED_FAULT_DIR=\"$LED_FAULT_DIR\"#" "$TARGET"
-    echo "LED_FAULT_DIR переопределён на $LED_FAULT_DIR"
-fi
 if [ -n "$NETBIRD_BIN" ]; then
     sed -i "s#^NETBIRD_BIN=.*#NETBIRD_BIN=\"$NETBIRD_BIN\"#" "$TARGET"
     echo "NETBIRD_BIN переопределён на $NETBIRD_BIN"
 fi
 
-# /etc/rc.button/wps — обычный файл, а не UCI-конфиг, поэтому по умолчанию
-# НЕ переживает "sysupgrade" (без -n сохраняются только файлы, перечисленные
-# в /etc/sysupgrade.conf). Добавляем его туда сами, чтобы после обновления
-# прошивки скрипт не пришлось ставить заново.
 [ -f "$SYSUPGRADE_CONF" ] || : > "$SYSUPGRADE_CONF"
 if ! grep -qxF "$TARGET" "$SYSUPGRADE_CONF"; then
     echo "$TARGET" >> "$SYSUPGRADE_CONF"
@@ -98,18 +49,8 @@ fi
 
 echo "Готово: $TARGET установлен."
 echo
-echo "Список реальных имён LED на этом роутере (сверьте с LED_2G_DIR/LED_5G_DIR внутри $TARGET):"
-ls /sys/class/leds/ 2>/dev/null || echo "(/sys/class/leds/ недоступен)"
-echo
-echo "Проверка без физической кнопки (текущий режим ACTION_MODE):"
-echo "  короткое нажатие:                SEEN=0 ACTION=released BUTTON=wps $TARGET"
-echo "  долгое нажатие (USB, 5+ сек):    SEEN=5 ACTION=released BUTTON=wps $TARGET"
-echo
-echo "Проверка режима wan вручную, без переустановки:"
-echo "  ACTION_MODE=wan SEEN=0 ACTION=released BUTTON=wps $TARGET"
-echo
-echo "Проверка режима netbird вручную, без переустановки (требует настроенного netbird):"
-echo "  ACTION_MODE=netbird SEEN=0 ACTION=released BUTTON=wps $TARGET"
-echo
-echo "Долгое нажатие требует уже настроенной USB-шары:"
-echo "  wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-tool/usb-smb-share.sh | sh"
+echo "Проверка без физической кнопки:"
+echo "  Wi-Fi:                  SEEN=0 ACTION=released BUTTON=wps $TARGET"
+echo "  wireguard/amneziawg:    SEEN=3 ACTION=released BUTTON=wps $TARGET"
+echo "  netbird:                SEEN=6 ACTION=released BUTTON=wps $TARGET"
+echo "Логи: logread -e rc.button.wps"

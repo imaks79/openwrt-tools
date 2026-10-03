@@ -35,19 +35,15 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 
 ### [cudy-wr3000u](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md)
 
-Кнопка WPS роутера Cudy WR3000U совмещает две функции по длительности
-нажатия: короткое (< 5 сек) → Wi-Fi вкл/выкл (оба диапазона разом) + два
-диапазонных LED панели (2.4 ГГц/5 ГГц); долгое (≥ 5 сек) → безопасно
-монтирует/размонтирует USB-накопитель (требует предварительной настройки
-шары через `openwrt-tool/usb-smb-share.sh`).
+Кнопка WPS роутера Cudy WR3000U по длительности удержания: < 2 сек →
+Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥ 5 сек → netbird
+вкл/выкл. Светодиоды не используются.
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
-Имена LED (`blue:wlan-2ghz`/`blue:wlan-5ghz`) подтверждены на реальном
-устройстве; переопределение через переменные окружения и все нюансы — в
-[cudy-wr3000u/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md).
+Подробности — в [cudy-wr3000u/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md).
 
 ### [xiaomi-ax3000t](xiaomi-ax3000t/README.md)
 
@@ -92,15 +88,13 @@ Home, troubleshooting NTFS, логи — в
 ```
 openwrt-tools/
 ├── cudy-tr3000/                    Кнопки mode/reset для Cudy TR3000 (поверх openwrt-tool)
-├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi вкл/выкл + LED для Cudy WR3000U
+├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi / wireguard+amneziawg / netbird для Cudy WR3000U
 ├── xiaomi-ax3000t/                 Кнопка Mesh → Wi-Fi вкл/выкл + LED для Xiaomi AX3000T
 └── openwrt-tool/                   Два универсальных скрипта: setup+AdGuard Home и USB-шара
 ```
 
 Каждый подкаталог — свои скрипты и своя документация, разворачиваются на
 роутере одной командой `wget -O - <url> | sh` и хранят историю разработки
-в этом репозитории. Зависимость между каталогами одна и та же в двух
-местах: кнопка reset в `cudy-tr3000` и долгое нажатие WPS в
-`cudy-wr3000u` вызывают `openwrt-tool/usb-smb-share.sh`
-(режим `swap-disk`), поэтому шару сначала нужно настроить им; всё
-остальное независимо.
+в этом репозитории. Зависимость между каталогами одна: кнопка reset в `cudy-tr3000` вызывает
+`openwrt-tool/usb-smb-share.sh` (режим `swap-disk`), поэтому шару сначала
+нужно настроить им; всё остальное независимо.
