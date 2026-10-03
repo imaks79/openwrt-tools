@@ -14,7 +14,7 @@
 
 - Wi-Fi выключен — оба LED погашены;
 - Wi-Fi включён, пиров нет — синий;
-- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — handshake не старше 180 с, netbird — есть Connected-пир) — жёлтый.
+- Wi-Fi включён, есть подключённый пир (wireguard/amneziawg — handshake не старше 60 с, netbird — есть Connected-пир) — жёлтый.
 
 LED пересчитывается при загрузке (`/etc/rc.local`) и раз в минуту из cron, чтобы следовать за подключением пиров. У wireguard без `persistent_keepalive` и без трафика handshake может устаревать — тогда LED вернётся в синий.
 

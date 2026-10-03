@@ -16,7 +16,7 @@
 #   Wi-Fi включён, пиров нет                — горит синий;
 #   Wi-Fi включён, есть подключённый пир    — горит жёлтый.
 # Пир считается подключённым, если: у wireguard/amneziawg-интерфейса был
-# handshake не старше HANDSHAKE_MAX_AGE секунд (по умолчанию 180); у netbird
+# handshake не старше HANDSHAKE_MAX_AGE секунд (по умолчанию 60); у netbird
 # "netbird status" показывает хотя бы одного Connected-пира.
 #
 # Режим ACTION=sync (без нажатия) только пересчитывает LED по текущему
@@ -30,7 +30,7 @@
 LED_YELLOW_DIR="${LED_YELLOW_DIR:-}"
 LED_BLUE_DIR="${LED_BLUE_DIR:-}"
 NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
-HANDSHAKE_MAX_AGE="${HANDSHAKE_MAX_AGE:-180}"
+HANDSHAKE_MAX_AGE="${HANDSHAKE_MAX_AGE:-60}"
 NETBIRD_TIMEOUT="${NETBIRD_TIMEOUT:-20}"
 
 [ -z "$LED_YELLOW_DIR" ] && LED_YELLOW_DIR="$(ls -d /sys/class/leds/*yellow* 2>/dev/null | head -n1)"
