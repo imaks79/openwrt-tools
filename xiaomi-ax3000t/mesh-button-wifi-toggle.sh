@@ -147,8 +147,10 @@ netbird_present() {
     command -v "$NETBIRD_BIN" >/dev/null 2>&1
 }
 
+# Новые версии netbird (0.78) не печатают "Daemon status:", поэтому смотрим
+# на "Management: Connected"; старый формат тоже поддерживаем.
 netbird_is_connected() {
-    "$NETBIRD_BIN" status 2>/dev/null | grep -q '^Daemon status: Connected$'
+    "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^(Management|Daemon status): Connected$'
 }
 
 # "Peers count: 2/5 Connected" — хотя бы один подключённый пир
