@@ -31,6 +31,7 @@ LED_YELLOW_DIR="${LED_YELLOW_DIR:-}"
 LED_BLUE_DIR="${LED_BLUE_DIR:-}"
 NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 HANDSHAKE_MAX_AGE="${HANDSHAKE_MAX_AGE:-180}"
+NETBIRD_TIMEOUT="${NETBIRD_TIMEOUT:-20}"
 
 [ -z "$LED_YELLOW_DIR" ] && LED_YELLOW_DIR="$(ls -d /sys/class/leds/*yellow* 2>/dev/null | head -n1)"
 [ -z "$LED_BLUE_DIR" ] && LED_BLUE_DIR="$(ls -d /sys/class/leds/*blue* 2>/dev/null | head -n1)"
@@ -156,23 +157,33 @@ netbird_has_peer() {
     "$NETBIRD_BIN" status 2>/dev/null | grep -Eq '^Peers count: [1-9][0-9]*/'
 }
 
+# netbird up/down с ограничением по времени: без логина "netbird up" ждёт
+# SSO-вход в браузере и иначе висел бы минутами
+netbird_run() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$NETBIRD_TIMEOUT" "$NETBIRD_BIN" "$1" 2>&1
+    else
+        "$NETBIRD_BIN" "$1" 2>&1
+    fi
+}
+
 toggle_netbird() {
     if ! netbird_present; then
         logger -t rc.button.mesh "mesh: '$NETBIRD_BIN' не найден — сначала установите и настройте netbird, пропускаю"
         return 0
     fi
     if netbird_is_connected; then
-        if out="$("$NETBIRD_BIN" down 2>&1)"; then
+        if out="$(netbird_run down)"; then
             logger -t rc.button.mesh "mesh: netbird отключён"
             blink_done=1
         else
             logger -t rc.button.mesh "mesh: netbird down завершился с ошибкой: $out"
         fi
     else
-        if out="$("$NETBIRD_BIN" up 2>&1)"; then
+        if out="$(netbird_run up)"; then
             logger -t rc.button.mesh "mesh: netbird подключён"
         else
-            logger -t rc.button.mesh "mesh: netbird up завершился с ошибкой: $out"
+            logger -t rc.button.mesh "mesh: netbird up не завершился за ${NETBIRD_TIMEOUT}с или упал (если не залогинен — выполните вход по SSH: netbird up --setup-key <KEY>): $out"
         fi
     fi
 }
