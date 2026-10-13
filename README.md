@@ -8,9 +8,33 @@
 которая работает поверх шары, настроенной универсальным
 `openwrt-tool/usb-smb-share.sh` (см. ниже).
 
+## Что делают кнопки
+
+Сводка действий, которые назначают скрипты из этого репозитория. Каждое
+нажатие-переключатель инвертирует текущее состояние (вкл → выкл и обратно).
+
+| Роутер | Кнопка (хук) | Нажатие | Действие | Индикация |
+|---|---|---|---|---|
+| Cudy TR3000 | флажок mode (`/etc/rc.button/BTN_0`) | положение «включено» (`pressed`) | Wi-Fi включён (все радиомодули) | белый LED |
+| | | положение «выключено» (`released`) | Wi-Fi выключен — защитный режим | красный LED вместо белого |
+| Cudy TR3000 | reset (`/etc/rc.button/reset`) | < 1 с | USB-накопитель: размонтировать текущий, до 60 с искать и смонтировать новый (`swap-disk`) | успех — белый мигает 5 раз; ошибка — красный горит 5 с |
+| | | 1–5 с | netbird вкл/выкл (`netbird up`/`down`) | то же |
+| | | ≥ 5 с | сброс к заводским настройкам (как в штатной прошивке) | — |
+| Cudy WR3000U | WPS (`/etc/rc.button/wps`) | < 2 с | Wi-Fi вкл/выкл (все радиомодули) | нет, только `logread -e rc.button.wps` |
+| | | 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup`) | то же |
+| | | ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`) | то же |
+| Xiaomi AX3000T | Mesh (`/etc/rc.button/BTN_9`) | < 2 с | Wi-Fi вкл/выкл (все радиомодули) | синий — Wi-Fi включён, погашен — выключен (если нет пиров) |
+| | | 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup`) | после отключения синий моргает 2 раза |
+| | | ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`) | после отключения синий моргает 2 раза |
+
+Штатные функции, которые при этом пропадают: reboot по короткому нажатию
+reset на TR3000 и запуск WPS-подключения на WR3000U. На AX3000T жёлтый LED
+дополнительно показывает, что есть подключённый пир (wireguard/amneziawg
+или netbird), независимо от Wi-Fi.
+
 ## Быстрый старт
 
-### [cudy-tr3000](02%20Projects/Github/openwrt-tools/cudy-tr3000/README.md)
+### [cudy-tr3000](cudy-tr3000/README.md)
 
 Два опциональных дополнения для физических кнопок Cudy TR3000 (сама
 сетевая шара теперь настраивается универсальным `usb-smb-share.sh` из
@@ -31,9 +55,9 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 ```
 
 Имена LED и все нюансы — в
-[cudy-tr3000/README.md](02%20Projects/Github/openwrt-tools/cudy-tr3000/README.md).
+[cudy-tr3000/README.md](cudy-tr3000/README.md).
 
-### [cudy-wr3000u](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md)
+### [cudy-wr3000u](cudy-wr3000u/README.md)
 
 Кнопка WPS роутера Cudy WR3000U по длительности удержания: < 2 сек →
 Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥ 5 сек → netbird
@@ -43,7 +67,7 @@ Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 ```
 
-Подробности — в [cudy-wr3000u/README.md](02%20Projects/Github/openwrt-tools/cudy-wr3000u/README.md).
+Подробности — в [cudy-wr3000u/README.md](cudy-wr3000u/README.md).
 
 ### [xiaomi-ax3000t](xiaomi-ax3000t/README.md)
 
@@ -61,7 +85,7 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax
 Подключайтесь по кабелю — нажатие обрывает Wi-Fi-сессию. Нюансы, настройка
 порогов и переопределение LED — в [xiaomi-ax3000t/README.md](xiaomi-ax3000t/README.md).
 
-### [openwrt-tool](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md)
+### [openwrt-tool](openwrt-tool/README.md)
 
 Два универсальных скрипта, не привязанных к конкретной модели роутера.
 
@@ -83,7 +107,7 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/openwrt-t
 Переопределение hostname/LAN-IP/mount-point/SMB-сервера, режимы
 (`status`/`swap-disk`/`smb-backend`/`cron-alert`), смена пароля AdGuard
 Home, troubleshooting NTFS, логи — в
-[openwrt-tool/README.md](02%20Projects/Github/openwrt-tools/openwrt-tool/README.md).
+[openwrt-tool/README.md](openwrt-tool/README.md).
 
 ## Структура репозитория
 
