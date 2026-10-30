@@ -2,12 +2,14 @@
 
 Кнопка **Mesh** на Xiaomi AX3000T (OpenWrt, MediaTek MT7981B).
 
-| Нажатие | Действие |
+| Удержание | Действие |
 |---|---|
-| любое (длительность не важна) | агент netbird вкл/выкл (`netbird up`/`down`; netbird должен быть уже установлен и залогинен) |
+| < 2 с | Wi-Fi вкл/выкл (все радиомодули) |
+| 2–5 с | агент netbird вкл/выкл (`netbird up`/`down`; netbird должен быть уже установлен и залогинен) |
+| ≥ 5 с | ничего (только запись в лог) |
 
-После успешного **отключения** netbird синий LED моргает два раза. Wi-Fi и
-wireguard/amneziawg кнопка больше не переключает — они только учитываются в
+После успешного **отключения** netbird синий LED моргает два раза.
+wireguard/amneziawg кнопка не переключает — они только учитываются в
 индикации.
 
 Индикатор (`blue:status` / `yellow:status`):
@@ -29,7 +31,7 @@ LED пересчитывает фоновый цикл (`ACTION=daemon`, зап�
 
 ## Установка
 
-Не заходите по SSH через netbird — нажатие отключит netbird и оборвёт сессию.
+Подключайтесь **по кабелю**, не по Wi-Fi и не через netbird — нажатие может оборвать сессию.
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
@@ -44,10 +46,11 @@ LED_YELLOW_DIR=/sys/class/leds/<имя> LED_BLUE_DIR=/sys/class/leds/<имя> \
   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 ```
 
-Проверка без физической кнопки:
+Проверка без физической кнопки (`SEEN` — секунды удержания):
 
 ```sh
-ACTION=released BUTTON=BTN_9 /etc/rc.button/BTN_9   # netbird вкл/выкл
+SEEN=0 ACTION=released BUTTON=BTN_9 /etc/rc.button/BTN_9   # Wi-Fi
+SEEN=3 ACTION=released BUTTON=BTN_9 /etc/rc.button/BTN_9   # netbird
 ```
 
 Логи: `logread -e rc.button.mesh`.

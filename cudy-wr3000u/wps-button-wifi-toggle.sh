@@ -1,8 +1,10 @@
 #!/bin/sh
 # Кнопка WPS на Cudy WR3000U (хук /etc/rc.button/wps) вместо запуска WPS
-# при любом нажатии (событие "released", длительность не важна) включает/
-# выключает агент netbird (netbird up/down; netbird должен быть уже
-# установлен и залогинен).
+# переключает # по длительности удержания (SEEN — секунды, приходит при "released"):
+#   < 2 с        — Wi-Fi вкл/выкл (все радиомодули);
+#   >= 2, < 5 с  — агент netbird вкл/выкл (netbird up/down; netbird должен
+#                  быть уже установлен и залогинен);
+#   >= 5 с       — ничего (только запись в лог).
 #
 # Светодиоды сознательно НЕ используются: на этой модели они все заняты
 # штатными индикаторами системы (см. README.md).
@@ -17,6 +19,34 @@ NETBIRD_BIN="${NETBIRD_BIN:-netbird}"
 NETBIRD_TIMEOUT="${NETBIRD_TIMEOUT:-20}"
 
 [ "$ACTION" = "released" ] || exit 0
+
+# ---------------- Wi-Fi ----------------
+
+wifi_check_any_enabled() {
+    val="$(uci -q get wireless."$1".disabled)"
+    [ -z "$val" ] && val=0
+    [ "$val" = "0" ] && any_enabled=1
+}
+
+wifi_set_disabled() {
+    uci set wireless."$1".disabled="$new_disabled"
+}
+
+wifi_is_on() {
+    any_enabled=0
+    config_load wireless
+    config_foreach wifi_check_any_enabled wifi-device
+    [ "$any_enabled" = "1" ]
+}
+
+toggle_wifi() {
+    if wifi_is_on; then new_disabled=1; else new_disabled=0; fi
+    config_load wireless
+    config_foreach wifi_set_disabled wifi-device
+    uci commit wireless
+    wifi reload
+    logger -t rc.button.wps "wps: Wi-Fi $([ "$new_disabled" = "1" ] && echo выключен || echo включён)"
+}
 
 # ---------------- netbird ----------------
 
@@ -60,4 +90,11 @@ toggle_netbird() {
     fi
 }
 
-toggle_netbird
+seen="${SEEN:-0}"
+if [ "$seen" -ge 5 ] 2>/dev/null; then
+    logger -t rc.button.wps "wps: удержание ${seen}с (>= 5с) — действия нет"
+elif [ "$seen" -ge 2 ] 2>/dev/null; then
+    toggle_netbird
+else
+    toggle_wifi
+fi

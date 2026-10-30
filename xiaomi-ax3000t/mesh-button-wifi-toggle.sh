@@ -1,10 +1,12 @@
 #!/bin/sh
 # Кнопка Mesh на Xiaomi AX3000T (хук /etc/rc.button/BTN_9).
 #
-# Любое нажатие (событие "released", длительность не важна) включает/
-# выключает агент netbird (netbird up/down; сам netbird должен быть уже
-# установлен и залогинен). После успешного ОТКЛЮЧЕНИЯ netbird синий LED
-# моргает два раза.
+# Действия по длительности удержания (SEEN — секунды, приходит при "released"):
+#   < 2 с        — Wi-Fi вкл/выкл (все радиомодули);
+#   >= 2, < 5 с  — агент netbird вкл/выкл (netbird up/down; сам netbird должен
+#                  быть уже установлен и залогинен); после успешного
+#                  ОТКЛЮЧЕНИЯ синий LED моргает два раза;
+#   >= 5 с       — ничего (только запись в лог).
 #
 # Индикация (один двухцветный индикатор: blue:status / yellow:status):
 #   есть подключённый пир (Wi-Fi не важен)  — горит жёлтый;
@@ -57,7 +59,7 @@ led_off() {
     echo 0 > "$dir/brightness" 2>/dev/null
 }
 
-# ---------------- Wi-Fi (только для индикации) ----------------
+# ---------------- Wi-Fi ----------------
 
 wifi_check_any_enabled() {
     val="$(uci -q get wireless."$1".disabled)"
@@ -65,11 +67,24 @@ wifi_check_any_enabled() {
     [ "$val" = "0" ] && any_enabled=1
 }
 
+wifi_set_disabled() {
+    uci set wireless."$1".disabled="$new_disabled"
+}
+
 wifi_is_on() {
     any_enabled=0
     config_load wireless
     config_foreach wifi_check_any_enabled wifi-device
     [ "$any_enabled" = "1" ]
+}
+
+toggle_wifi() {
+    if wifi_is_on; then new_disabled=1; else new_disabled=0; fi
+    config_load wireless
+    config_foreach wifi_set_disabled wifi-device
+    uci commit wireless
+    wifi reload
+    logger -t rc.button.mesh "mesh: Wi-Fi $([ "$new_disabled" = "1" ] && echo выключен || echo включён)"
 }
 
 # ---------------- wireguard / amneziawg (только для индикации) ----------------
@@ -218,7 +233,14 @@ fi
 if [ "$ACTION" = "released" ]; then
     : > "$BUSYFILE"
     trap 'rm -f "$BUSYFILE"' EXIT
-    toggle_netbird
+    seen="${SEEN:-0}"
+    if [ "$seen" -ge 5 ] 2>/dev/null; then
+        logger -t rc.button.mesh "mesh: удержание ${seen}с (>= 5с) — действия нет"
+    elif [ "$seen" -ge 2 ] 2>/dev/null; then
+        toggle_netbird
+    else
+        toggle_wifi
+    fi
 fi
 
 [ "$blink_done" = "1" ] && blink_blue_twice
