@@ -20,12 +20,8 @@
 | Cudy TR3000 | reset (`/etc/rc.button/reset`) | < 1 с | USB-накопитель: размонтировать текущий, до 60 с искать и смонтировать новый (`swap-disk`) | успех — белый мигает 5 раз; ошибка — красный горит 5 с |
 | | | 1–5 с | netbird вкл/выкл (`netbird up`/`down`) | то же |
 | | | ≥ 5 с | сброс к заводским настройкам (как в штатной прошивке) | — |
-| Cudy WR3000U | WPS (`/etc/rc.button/wps`) | < 2 с | Wi-Fi вкл/выкл (все радиомодули) | нет, только `logread -e rc.button.wps` |
-| | | 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup`) | то же |
-| | | ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`) | то же |
-| Xiaomi AX3000T | Mesh (`/etc/rc.button/BTN_9`) | < 2 с | Wi-Fi вкл/выкл (все радиомодули) | синий — Wi-Fi включён, погашен — выключен (если нет пиров) |
-| | | 2–5 с | wireguard и amneziawg вкл/выкл (`ifdown`/`ifup`) | после отключения синий моргает 2 раза |
-| | | ≥ 5 с | netbird вкл/выкл (`netbird down`/`up`) | после отключения синий моргает 2 раза |
+| Cudy WR3000U | WPS (`/etc/rc.button/wps`) | любое | netbird вкл/выкл (`netbird up`/`down`) | нет, только `logread -e rc.button.wps` |
+| Xiaomi AX3000T | Mesh (`/etc/rc.button/BTN_9`) | любое | netbird вкл/выкл (`netbird up`/`down`) | после отключения синий моргает 2 раза |
 
 Штатные функции, которые при этом пропадают: reboot по короткому нажатию
 reset на TR3000 и запуск WPS-подключения на WR3000U. На AX3000T жёлтый LED
@@ -59,9 +55,8 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-tr30
 
 ### [cudy-wr3000u](cudy-wr3000u/README.md)
 
-Кнопка WPS роутера Cudy WR3000U по длительности удержания: < 2 сек →
-Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥ 5 сек → netbird
-вкл/выкл. Светодиоды не используются.
+Кнопка WPS роутера Cudy WR3000U: любое нажатие → агент netbird вкл/выкл.
+Светодиоды не используются.
 
 ```sh
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
@@ -71,9 +66,8 @@ wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr30
 
 ### [xiaomi-ax3000t](xiaomi-ax3000t/README.md)
 
-Кнопка Mesh роутера Xiaomi AX3000T по длительности удержания: < 2 сек →
-Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥ 5 сек → netbird
-вкл/выкл (после отключения VPN/netbird синий LED моргает дважды). Индикатор:
+Кнопка Mesh роутера Xiaomi AX3000T: любое нажатие → агент netbird вкл/выкл
+(после отключения синий LED моргает дважды). Индикатор:
 жёлтый — есть подключённый пир (даже при выключенном Wi-Fi), синий — пиров
 нет и Wi-Fi включён, погашен — пиров нет и Wi-Fi выключен. LED обновляет
 фоновый опрос каждые 5 сек.
@@ -82,7 +76,7 @@ Wi-Fi вкл/выкл; 2–5 сек → wireguard/amneziawg вкл/выкл; ≥
 wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 ```
 
-Подключайтесь по кабелю — нажатие обрывает Wi-Fi-сессию. Нюансы, настройка
+Не заходите по SSH через netbird — нажатие оборвёт сессию. Нюансы, настройка
 порогов и переопределение LED — в [xiaomi-ax3000t/README.md](xiaomi-ax3000t/README.md).
 
 ### [openwrt-tool](openwrt-tool/README.md)
@@ -114,8 +108,8 @@ Home, troubleshooting NTFS, логи — в
 ```
 openwrt-tools/
 ├── cudy-tr3000/                    mode → Wi-Fi, reset → USB/netbird/factory reset для Cudy TR3000 (поверх openwrt-tool)
-├── cudy-wr3000u/                   Кнопка WPS → Wi-Fi / wireguard+amneziawg / netbird для Cudy WR3000U
-├── xiaomi-ax3000t/                 Кнопка Mesh → Wi-Fi / wireguard+amneziawg / netbird + LED по пирам для Xiaomi AX3000T
+├── cudy-wr3000u/                   Кнопка WPS → netbird вкл/выкл для Cudy WR3000U
+├── xiaomi-ax3000t/                 Кнопка Mesh → netbird вкл/выкл + LED по пирам для Xiaomi AX3000T
 └── openwrt-tool/                   Два универсальных скрипта: setup+AdGuard Home и USB-шара
 ```
 

@@ -1,23 +1,19 @@
 #!/bin/sh
 # ==============================================================================
-# Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения переключает по
-# длительности удержания:
-#   - < 2 сек        — Wi-Fi вкл/выкл (все радиомодули);
-#   - от 2 до 5 сек  — wireguard и amneziawg вкл/выкл (ifdown/ifup), чтобы
-#                      клиенты не могли подключиться; повторно — обратно;
-#   - от 5 сек       — netbird вкл/выкл (netbird down/up; требует уже
-#                      установленного и залогиненного netbird).
+# Cudy WR3000U — кнопка WPS вместо запуска WPS-подключения при любом
+# нажатии включает/выключает агент netbird (netbird up/down; требует уже
+# установленного и залогиненного netbird).
 # Светодиоды не используются (на этой модели все заняты системой).
 #
-# Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ — см. ниже):
+# Использование на роутере (через SSH, НЕ через netbird — см. ниже):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
 # Если бинарь netbird лежит не в PATH:
 #   NETBIRD_BIN=/usr/sbin/netbird \
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/cudy-wr3000u/install-wps-button.sh | sh
 #
-# ВНИМАНИЕ: если вы зашли по SSH через сам Wi-Fi — нажатие кнопки может
-# выключить Wi-Fi и оборвать вашу сессию. Тестируйте и устанавливайте по кабелю.
+# ВНИМАНИЕ: если вы зашли по SSH через netbird — нажатие кнопки может
+# отключить netbird и оборвать вашу сессию. Тестируйте по LAN.
 # ==============================================================================
 
 set -e
@@ -50,7 +46,5 @@ fi
 echo "Готово: $TARGET установлен."
 echo
 echo "Проверка без физической кнопки:"
-echo "  Wi-Fi:                  SEEN=0 ACTION=released BUTTON=wps $TARGET"
-echo "  wireguard/amneziawg:    SEEN=3 ACTION=released BUTTON=wps $TARGET"
-echo "  netbird:                SEEN=6 ACTION=released BUTTON=wps $TARGET"
+echo "  netbird вкл/выкл:  ACTION=released BUTTON=wps $TARGET"
 echo "Логи: logread -e rc.button.wps"

@@ -1,10 +1,9 @@
 #!/bin/sh
 # ==============================================================================
-# Xiaomi AX3000T — кнопка Mesh: короткое нажатие — Wi-Fi вкл/выкл, 2-5 с —
-# wireguard/amneziawg вкл/выкл, от 5 с — netbird вкл/выкл; LED: выкл (Wi-Fi
-# выключен) / синий / жёлтый (есть подключённый пир).
+# Xiaomi AX3000T — кнопка Mesh: любое нажатие — netbird вкл/выкл; LED: выкл
+# (Wi-Fi выключен) / синий / жёлтый (есть подключённый пир).
 #
-# Использование на роутере (через SSH, ЖЕЛАТЕЛЬНО ПО КАБЕЛЮ):
+# Использование на роутере (через SSH, НЕ через netbird):
 #   wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 #
 # Если автоопределение светодиодов не подходит (см. "ls /sys/class/leds/"):
@@ -12,7 +11,7 @@
 #     wget -O - https://raw.githubusercontent.com/imaks79/openwrt-tools/main/xiaomi-ax3000t/install-mesh-button.sh | sh
 # Нестандартный путь к netbird: NETBIRD_BIN=/usr/sbin/netbird (аналогично).
 #
-# ВНИМАНИЕ: если вы зашли по SSH через Wi-Fi — нажатие кнопки оборвёт сессию.
+# ВНИМАНИЕ: если вы зашли по SSH через netbird — нажатие кнопки оборвёт сессию.
 # ==============================================================================
 
 set -e

@@ -1,15 +1,10 @@
 #!/bin/sh
 # Кнопка Mesh на Xiaomi AX3000T (хук /etc/rc.button/BTN_9).
 #
-# Действия по длительности удержания (SEEN — секунды, приходит при "released"):
-#   < 2 с        — включить/выключить Wi-Fi целиком (все радиомодули);
-#   >= 2, < 5 с  — выключить/включить VPN-интерфейсы wireguard и amneziawg
-#                  (ifdown/ifup всех uci-интерфейсов с proto wireguard/amneziawg),
-#                  чтобы клиенты не могли подключиться; повторное удержание
-#                  поднимает их обратно;
-#   (после успешного ОТКЛЮЧЕНИЯ VPN/netbird синий LED моргает два раза)
-#   >= 5 с       — то же для netbird (netbird down/up; сам netbird должен быть
-#                  уже установлен и залогинен).
+# Любое нажатие (событие "released", длительность не важна) включает/
+# выключает агент netbird (netbird up/down; сам netbird должен быть уже
+# установлен и залогинен). После успешного ОТКЛЮЧЕНИЯ netbird синий LED
+# моргает два раза.
 #
 # Индикация (один двухцветный индикатор: blue:status / yellow:status):
 #   есть подключённый пир (Wi-Fi не важен)  — горит жёлтый;
@@ -62,16 +57,12 @@ led_off() {
     echo 0 > "$dir/brightness" 2>/dev/null
 }
 
-# ---------------- Wi-Fi ----------------
+# ---------------- Wi-Fi (только для индикации) ----------------
 
 wifi_check_any_enabled() {
     val="$(uci -q get wireless."$1".disabled)"
     [ -z "$val" ] && val=0
     [ "$val" = "0" ] && any_enabled=1
-}
-
-wifi_set_disabled() {
-    uci set wireless."$1".disabled="$new_disabled"
 }
 
 wifi_is_on() {
@@ -81,16 +72,7 @@ wifi_is_on() {
     [ "$any_enabled" = "1" ]
 }
 
-toggle_wifi() {
-    if wifi_is_on; then new_disabled=1; else new_disabled=0; fi
-    config_load wireless
-    config_foreach wifi_set_disabled wifi-device
-    uci commit wireless
-    wifi reload
-    logger -t rc.button.mesh "mesh: Wi-Fi $([ "$new_disabled" = "1" ] && echo выключен || echo включён)"
-}
-
-# ---------------- wireguard / amneziawg ----------------
+# ---------------- wireguard / amneziawg (только для индикации) ----------------
 
 vpn_collect() {
     proto="$(uci -q get network."$1".proto)"
@@ -141,26 +123,6 @@ vpn_has_peer() {
     for i in $vpn_wg; do iface_is_up "$i" && tool_has_peer wg "$i" && return 0; done
     for i in $vpn_awg; do iface_is_up "$i" && tool_has_peer awg "$i" && return 0; done
     return 1
-}
-
-toggle_vpn() {
-    vpn_load
-    all="$vpn_wg $vpn_awg"
-    if [ -z "$(echo $all)" ]; then
-        logger -t rc.button.mesh "mesh: wireguard/amneziawg интерфейсов в /etc/config/network нет, пропускаю"
-        return 0
-    fi
-    any_up=0
-    for i in $all; do iface_is_up "$i" && any_up=1; done
-    if [ "$any_up" = "1" ]; then
-        down_ok=1
-        for i in $all; do ifdown "$i" || down_ok=0; done
-        [ "$down_ok" = "1" ] && blink_done=1
-        logger -t rc.button.mesh "mesh: wireguard/amneziawg отключены:$all"
-    else
-        for i in $all; do ifup "$i"; done
-        logger -t rc.button.mesh "mesh: wireguard/amneziawg включены:$all"
-    fi
 }
 
 # ---------------- netbird ----------------
@@ -214,7 +176,7 @@ toggle_netbird() {
 
 # ---------------- LED ----------------
 
-# два синих моргания — подтверждение успешного отключения VPN/netbird
+# два синих моргания — подтверждение успешного отключения netbird
 blink_blue_twice() {
     led_off "$LED_YELLOW_DIR"
     for _ in 1 2; do
@@ -256,14 +218,7 @@ fi
 if [ "$ACTION" = "released" ]; then
     : > "$BUSYFILE"
     trap 'rm -f "$BUSYFILE"' EXIT
-    seen="${SEEN:-0}"
-    if [ "$seen" -ge 5 ] 2>/dev/null; then
-        toggle_netbird
-    elif [ "$seen" -ge 2 ] 2>/dev/null; then
-        toggle_vpn
-    else
-        toggle_wifi
-    fi
+    toggle_netbird
 fi
 
 [ "$blink_done" = "1" ] && blink_blue_twice
